@@ -39,4 +39,25 @@ interface EventDao {
         }
         return false
     }
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWaitlistEntry(waitlist: WaitlistEntity)
+
+    @Query("SELECT * FROM waitlist WHERE eventId = :eventId ORDER BY timestamp ASC LIMIT 1")
+    suspend fun getNextWaitlistEntry(eventId: Int): WaitlistEntity?
+
+    @Query("SELECT * FROM waitlist WHERE eventId = :eventId ORDER BY timestamp ASC")
+    fun getWaitlistFlow(eventId: Int): Flow<List<WaitlistEntity>>
+
+    @Query("DELETE FROM waitlist WHERE id = :id")
+    suspend fun removeWaitlistEntry(id: Int)
+
+    @Query("SELECT * FROM waitlist WHERE eventId = :eventId AND memberId = :memberId LIMIT 1")
+    suspend fun getWaitlistEntryForMember(eventId: Int, memberId: String): WaitlistEntity?
+
+    @Query("UPDATE tickets SET status = 'Cancelled' WHERE id = :ticketId")
+    suspend fun cancelTicketStatus(ticketId: Int)
+
+    @Query("UPDATE events SET availableTickets = availableTickets + 1 WHERE id = :eventId")
+    suspend fun incrementAvailableTickets(eventId: Int)
 }

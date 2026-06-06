@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [EventEntity::class, TicketEntity::class], version = 1, exportSchema = false)
+@Database(entities = [EventEntity::class, TicketEntity::class, WaitlistEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
 
@@ -19,7 +19,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "idmuslim_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
+
                 INSTANCE = instance
                 instance
             }

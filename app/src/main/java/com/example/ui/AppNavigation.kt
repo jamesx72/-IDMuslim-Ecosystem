@@ -26,19 +26,24 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.ui.screens.CreateEventScreen
-import com.example.ui.screens.DigitalCardScreen
+import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.EventDetailScreen
 import com.example.ui.screens.EventsScreen
 import com.example.ui.screens.ScannerScreen
 import com.example.ui.screens.SplashScreen
+import com.example.ui.screens.AdminDashboardScreen
+import com.example.ui.screens.AuthScreen
 import com.example.ui.viewmodels.EventViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.compose.material.icons.filled.AdminPanelSettings
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     object Splash : Screen("splash", "Splash", null)
-    object Card : Screen("card", "Carte", Icons.Default.Home)
+    object Auth : Screen("auth", "Authentification", null)
+    object Profile : Screen("profile", "Profil", Icons.Default.Home)
     object Scanner : Screen("scanner", "Scanner", Icons.Default.QrCodeScanner)
     object Events : Screen("events", "Événements", Icons.Default.Event)
+    object Admin : Screen("admin", "Admin", Icons.Default.AdminPanelSettings)
     object CreateEvent : Screen("create_event", "Créer un événement", null)
     object EventDetail : Screen("event_detail/{eventId}", "Détails", null) {
         fun createRoute(eventId: Int) = "event_detail/$eventId"
@@ -46,9 +51,10 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
 }
 
 val bottomNavItems = listOf(
-    Screen.Card,
+    Screen.Profile,
     Screen.Scanner,
-    Screen.Events
+    Screen.Events,
+    Screen.Admin
 )
 
 @Composable
@@ -104,13 +110,32 @@ fun IDMuslimApp() {
         ) {
             composable(Screen.Splash.route) {
                 SplashScreen(onSplashFinished = {
-                    navController.navigate(Screen.Card.route) {
+                    val nextRoute = if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                        Screen.Profile.route
+                    } else {
+                        Screen.Auth.route
+                    }
+                    navController.navigate(nextRoute) {
                         popUpTo(Screen.Splash.route) { inclusive = true }
                     }
                 })
             }
-            composable(Screen.Card.route) {
-                DigitalCardScreen()
+            composable(Screen.Auth.route) {
+                AuthScreen(onAuthSuccess = {
+                    navController.navigate(Screen.Profile.route) {
+                        popUpTo(Screen.Auth.route) { inclusive = true }
+                    }
+                })
+            }
+            composable(Screen.Profile.route) {
+                ProfileScreen(
+                    viewModel = eventViewModel,
+                    onLogout = {
+                        navController.navigate(Screen.Auth.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                )
             }
             composable(Screen.Scanner.route) {
                 ScannerScreen()
@@ -121,6 +146,9 @@ fun IDMuslimApp() {
                     onNavigateToCreate = { navController.navigate(Screen.CreateEvent.route) },
                     onNavigateToDetail = { eventId -> navController.navigate(Screen.EventDetail.createRoute(eventId)) }
                 )
+            }
+            composable(Screen.Admin.route) {
+                AdminDashboardScreen(viewModel = eventViewModel)
             }
             composable(Screen.CreateEvent.route) {
                 CreateEventScreen(

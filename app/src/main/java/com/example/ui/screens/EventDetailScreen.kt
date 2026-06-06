@@ -34,6 +34,7 @@ fun EventDetailScreen(
     val scope = rememberCoroutineScope()
     var showSuccessDialog by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
+    var showWaitlistDialog by remember { mutableStateOf(false) }
 
     if (event == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -58,10 +59,23 @@ fun EventDetailScreen(
     if (showErrorDialog) {
         AlertDialog(
             onDismissRequest = { showErrorDialog = false },
-            title = { Text("Erreur d'inscription") },
-            text = { Text("Plus de places disponibles pour cet événement.") },
+            title = { Text("Erreur") },
+            text = { Text("L'opération a échoué. Veuillez réessayer ou vérifier votre identité dans le profil.") },
             confirmButton = {
                 TextButton(onClick = { showErrorDialog = false }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    if (showWaitlistDialog) {
+        AlertDialog(
+            onDismissRequest = { showWaitlistDialog = false },
+            title = { Text("Liste d'attente rejoint") },
+            text = { Text("Vous êtes sur la liste d'attente pour ${event.title}. Vous serez notifié dès qu'une place se libère.") },
+            confirmButton = {
+                TextButton(onClick = { showWaitlistDialog = false }) {
                     Text("OK")
                 }
             }
@@ -174,16 +188,27 @@ fun EventDetailScreen(
 
                 Button(
                     onClick = {
-                        viewModel.registerMemberForEvent(event.id, "IDM-9928-441-2024") { success ->
-                            if (success) showSuccessDialog = true else showErrorDialog = true
+                        val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                        val memberId = firebaseUser?.uid?.let { "IDM-${it.take(8).uppercase()}" } ?: "IDM-9928-441-2024"
+                        val memberEmail = firebaseUser?.email ?: "user@example.com"
+                        
+                        if (event.availableTickets > 0) {
+                            viewModel.registerMemberForEvent(event.id, memberId) { success ->
+                                if (success) showSuccessDialog = true else showErrorDialog = true
+                            }
+                        } else {
+                            viewModel.joinWaitlist(event.id, memberId, memberEmail) { success ->
+                                if (success) showWaitlistDialog = true else showErrorDialog = true
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
-                    enabled = event.availableTickets > 0,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (event.availableTickets > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                    ),
                     shape = RoundedCornerShape(28.dp)
                 ) {
-                    Text(if (event.availableTickets > 0) "S'inscrire à l'événement" else "Complet", fontWeight = FontWeight.Bold)
+                    Text(if (event.availableTickets > 0) "S'inscrire à l'événement" else "Rejoindre la liste d'attente", fontWeight = FontWeight.Bold)
                 }
             }
         }

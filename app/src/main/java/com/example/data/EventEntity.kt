@@ -26,3 +26,11 @@ data class TicketEntity(
     val scanCode: String,
     val status: String // "Valid", "Used", "Cancelled"
 )
+
+@Entity(tableName = "waitlist")
+data class WaitlistEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val eventId: Int,
+    val memberId: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
