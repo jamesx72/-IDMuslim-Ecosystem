@@ -30,11 +30,25 @@ class SessionManager(context: Context) {
 
     fun setVerifiedStatus(isVerified: Boolean) {
         prefs.edit().putBoolean(KEY_IS_VERIFIED, isVerified).apply()
+        if (isVerified) {
+            saveVerificationStatus("VERIFIED")
+        } else {
+            saveVerificationStatus("UNVERIFIED")
+        }
     }
 
     fun isUserVerified(): Boolean {
-        // Default to false for the identity verification workflow
-        return prefs.getBoolean(KEY_IS_VERIFIED, false)
+        return getVerificationStatus() == "VERIFIED"
+    }
+
+    fun saveVerificationStatus(status: String) {
+        prefs.edit().putString("KEY_VERIFICATION_STATUS", status).apply()
+    }
+
+    fun getVerificationStatus(): String {
+        val legacyVerified = prefs.getBoolean(KEY_IS_VERIFIED, false)
+        val defaultStatus = if (legacyVerified) "VERIFIED" else "UNVERIFIED"
+        return prefs.getString("KEY_VERIFICATION_STATUS", defaultStatus) ?: defaultStatus
     }
 
     fun saveProfilePhotoBase64(base64: String) {

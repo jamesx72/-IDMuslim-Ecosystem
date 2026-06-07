@@ -164,6 +164,8 @@ fun ProfileScreen(
     val tickets by viewModel.getMemberTickets(memberId).collectAsState()
     val events by viewModel.allEvents.collectAsState()
     val isVerified by viewModel.isUserVerified.collectAsState()
+    val verificationStatus by viewModel.verificationStatus.collectAsState()
+    val verificationStep by viewModel.verificationStep.collectAsState()
     val profilePhoto by viewModel.profilePhotoBase64.collectAsState()
     val cardTheme by viewModel.cardTheme.collectAsState()
     val language by viewModel.language.collectAsState()
@@ -315,6 +317,8 @@ fun ProfileScreen(
                     DigitalCardSection(
                         memberId = memberId,
                         isVerified = isVerified,
+                        verificationStatus = verificationStatus,
+                        verificationStep = verificationStep,
                         profilePhotoBase64 = profilePhoto,
                         cardTheme = cardTheme,
                         fullName = profileFullName,
@@ -448,7 +452,11 @@ fun ProfileScreen(
                 )
             }
             
-            if (!isVerified) {
+            if (verificationStatus.uppercase() == "PENDING") {
+                item {
+                    VerificationPendingPrompt(step = verificationStep)
+                }
+            } else if (verificationStatus.uppercase() == "UNVERIFIED" || (!isVerified && verificationStatus.uppercase() != "VERIFIED")) {
                 item {
                     VerifyIdentityPrompt(onClick = { showVerificationDialog = true })
                 }
@@ -526,7 +534,7 @@ fun ProfileScreen(
         VerificationWorkflowDialog(
             onDismiss = { showVerificationDialog = false },
             onVerified = {
-                viewModel.verifyIdentity(true)
+                viewModel.startMockVerification()
                 showVerificationDialog = false
             }
         )
@@ -537,6 +545,8 @@ fun ProfileScreen(
 fun DigitalCardSection(
     memberId: String,
     isVerified: Boolean,
+    verificationStatus: String,
+    verificationStep: String,
     profilePhotoBase64: String?,
     cardTheme: Int,
     fullName: String,
@@ -614,26 +624,11 @@ fun DigitalCardSection(
                             )
                         }
                     } else {
-                        Row(
-                            modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(50))
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(if (isVerified) Color(0xFF34D399) else Color(0xFFFBBF24), CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isVerified) Translations.get(language, "verified_premium") else Translations.get(language, "unverified"),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            )
-                        }
+                        com.example.ui.components.VerificationStatusBadge(
+                            status = verificationStatus,
+                            substep = verificationStep,
+                            useDarkThemeColors = false
+                        )
                     }
                 }
 
@@ -1224,6 +1219,59 @@ fun TicketHistoryCard(ticket: TicketEntity, event: EventEntity, onCancel: () -> 
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VerificationPendingPrompt(step: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Vérification en cours",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Notre service de conformité analyse actuellement votre pièce d'identité et votre selfie biométrique. Cette opération prend généralement quelques secondes.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+            )
+            if (step.isNotBlank()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = step,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
                 }
             }
         }

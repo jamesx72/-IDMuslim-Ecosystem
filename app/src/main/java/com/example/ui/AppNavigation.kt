@@ -39,12 +39,16 @@ import com.example.ui.viewmodels.EventViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material.icons.filled.AdminPanelSettings
 
+import androidx.compose.material.icons.filled.Chat
+import com.example.ui.screens.QAScreen
+
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     object Splash : Screen("splash", "Splash", null)
     object Auth : Screen("auth", "Authentification", null)
     object Profile : Screen("profile", "Profil", Icons.Default.Home)
     object Scanner : Screen("scanner", "Scanner", Icons.Default.QrCodeScanner)
     object Events : Screen("events", "Événements", Icons.Default.Event)
+    object QA : Screen("qa", "Questions", Icons.Default.Chat)
     object Admin : Screen("admin", "Admin", Icons.Default.AdminPanelSettings)
     object Settings : Screen("settings", "Paramètres", Icons.Default.Settings)
     object CreateEvent : Screen("create_event", "Créer un événement", null)
@@ -57,6 +61,7 @@ val bottomNavItems = listOf(
     Screen.Profile,
     Screen.Scanner,
     Screen.Events,
+    Screen.QA,
     Screen.Admin
 )
 
@@ -145,6 +150,9 @@ fun IDMuslimApp() {
             }
             composable(Screen.Scanner.route) {
                 ScannerScreen()
+            }
+            composable(Screen.QA.route) {
+                QAScreen()
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(

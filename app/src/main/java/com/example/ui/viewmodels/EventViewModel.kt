@@ -48,6 +48,12 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _isUserVerified = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isUserVerified())
     val isUserVerified: StateFlow<Boolean> = _isUserVerified.asStateFlow()
 
+    private val _verificationStatus = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getVerificationStatus())
+    val verificationStatus: StateFlow<String> = _verificationStatus.asStateFlow()
+
+    private val _verificationStep = MutableStateFlow("")
+    val verificationStep: StateFlow<String> = _verificationStep.asStateFlow()
+
     private val _profilePhotoBase64 = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfilePhotoBase64())
     val profilePhotoBase64: StateFlow<String?> = _profilePhotoBase64.asStateFlow()
 
@@ -69,9 +75,36 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _profileResidency = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileResidency())
     val profileResidency: StateFlow<String?> = _profileResidency.asStateFlow()
 
+    fun setVerificationStatus(status: String) {
+        com.example.network.ApiClient.getSessionManager().saveVerificationStatus(status)
+        _verificationStatus.value = status
+        val isVerified = (status == "VERIFIED")
+        com.example.network.ApiClient.getSessionManager().setVerifiedStatus(isVerified)
+        _isUserVerified.value = isVerified
+    }
+
     fun verifyIdentity(success: Boolean = true) {
-        com.example.network.ApiClient.getSessionManager().setVerifiedStatus(success)
-        _isUserVerified.value = success
+        val status = if (success) "VERIFIED" else "UNVERIFIED"
+        setVerificationStatus(status)
+    }
+
+    fun startMockVerification() {
+        viewModelScope.launch {
+            setVerificationStatus("PENDING")
+            _verificationStep.value = "Analyse cryptographique du document..."
+            logActivity("INFO", "Dépôt des documents d'identité pour vérification")
+            kotlinx.coroutines.delay(3000)
+
+            _verificationStep.value = "Reconnaissance faciale et biométrie..."
+            kotlinx.coroutines.delay(3000)
+
+            _verificationStep.value = "Finalisation de la validation IDMuslim..."
+            kotlinx.coroutines.delay(2000)
+
+            setVerificationStatus("VERIFIED")
+            _verificationStep.value = ""
+            logActivity("INFO", "Identité vérifiée avec succès par le service d'évaluation biométrique")
+        }
     }
 
     fun updateProfilePhoto(base64: String) {
