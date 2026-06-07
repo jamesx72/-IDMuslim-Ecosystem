@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.clickable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Divider
 import android.graphics.Bitmap
@@ -40,9 +41,96 @@ import com.example.data.TicketEntity
 import com.example.ui.viewmodels.EventViewModel
 import com.example.utils.QRCodeGenerator
 
+object Translations {
+    fun get(lang: String, key: String): String {
+        val strings = mapOf(
+            "fr" to mapOf(
+                "identity_card" to "CARTE D'IDENTITÉ",
+                "date_of_birth" to "DATE DE NAISSANCE",
+                "residence" to "RÉSIDENCE",
+                "id_number" to "N° IDENTIFIANT",
+                "expiry_date" to "DATE EXPIRATION",
+                "user" to "UTILISATEUR",
+                "not_specified" to "Non spécifié",
+                "personal_info" to "Informations Personnelles",
+                "full_name" to "Nom complet",
+                "dob_label" to "Date de naissance (JJ/MM/AAAA)",
+                "residence_label" to "Lieu de résidence",
+                "save" to "Sauvegarder",
+                "edit" to "Modifier",
+                "privacy_msg" to "Vos données sont protégées par un chiffrement sécurisé et ne sont partagées avec personne.",
+                "take_photo" to "Photo",
+                "signature" to "SIGNATURE",
+                "card_theme" to "Thème",
+                "language" to "Langue",
+                "history" to "Historique d'Événements",
+                "no_participation" to "Aucune participation pour l'instant.",
+                "verified_premium" to "VÉRIFIÉ PREMIUM",
+                "unverified" to "NON VÉRIFIÉ",
+                "logout" to "Déconnexion"
+            ),
+            "en" to mapOf(
+                "identity_card" to "IDENTITY CARD",
+                "date_of_birth" to "DATE OF BIRTH",
+                "residence" to "RESIDENCE",
+                "id_number" to "ID NUMBER",
+                "expiry_date" to "EXPIRY DATE",
+                "user" to "USER",
+                "not_specified" to "Not specified",
+                "personal_info" to "Personal Information",
+                "full_name" to "Full Name",
+                "dob_label" to "Date of Birth (DD/MM/YYYY)",
+                "residence_label" to "Place of Residence",
+                "save" to "Save",
+                "edit" to "Edit",
+                "privacy_msg" to "Your data is protected by secure encryption and is not shared with anyone.",
+                "take_photo" to "Photo",
+                "signature" to "SIGNATURE",
+                "card_theme" to "Theme",
+                "language" to "Language",
+                "history" to "Event History",
+                "no_participation" to "No participation yet.",
+                "verified_premium" to "VERIFIED PREMIUM",
+                "unverified" to "UNVERIFIED",
+                "logout" to "Logout"
+            ),
+            "ar" to mapOf(
+                "identity_card" to "بطاقة الهوية",
+                "date_of_birth" to "تاريخ الميلاد",
+                "residence" to "مكان الإقامة",
+                "id_number" to "رقم الهوية",
+                "expiry_date" to "تاريخ الإنتهاء",
+                "user" to "مستخدم",
+                "not_specified" to "غير محدد",
+                "personal_info" to "معلومات شخصية",
+                "full_name" to "الاسم الكامل",
+                "dob_label" to "تاريخ الميلاد (يوم/شهر/سنة)",
+                "residence_label" to "مكان الإقامة",
+                "save" to "حفظ",
+                "edit" to "تعديل",
+                "privacy_msg" to "بياناتك محمية بتشفير آمن ولا تتم مشاركتها مع أي شخص.",
+                "take_photo" to "صورة",
+                "signature" to "التوقيع",
+                "card_theme" to "مظهر",
+                "language" to "لغة",
+                "history" to "سجل الأحداث",
+                "no_participation" to "لا توجد مشاركات بعد.",
+                "verified_premium" to "حساب موثق",
+                "unverified" to "حساب غير موثق",
+                "logout" to "تسجيل خروج"
+            )
+        )
+        return strings[lang]?.get(key) ?: strings["fr"]?.get(key) ?: key
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
+fun ProfileScreen(
+    viewModel: EventViewModel,
+    onLogout: () -> Unit,
+    onNavigateToSettings: () -> Unit
+) {
     val firebaseUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
     val memberId = remember(firebaseUser) {
         if (firebaseUser != null) {
@@ -64,24 +152,88 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
         }
     }
 
+    val expiryDate = remember(firebaseUser) {
+        val timestamp = firebaseUser?.metadata?.creationTimestamp ?: System.currentTimeMillis()
+        val calendar = java.util.Calendar.getInstance()
+        calendar.timeInMillis = timestamp
+        calendar.add(java.util.Calendar.YEAR, 1)
+        val format = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+        format.format(calendar.time)
+    }
+
     val tickets by viewModel.getMemberTickets(memberId).collectAsState()
     val events by viewModel.allEvents.collectAsState()
     val isVerified by viewModel.isUserVerified.collectAsState()
     val profilePhoto by viewModel.profilePhotoBase64.collectAsState()
     val cardTheme by viewModel.cardTheme.collectAsState()
+    val language by viewModel.language.collectAsState()
+    val activityLogs by viewModel.activityLogs.collectAsState()
 
     var showVerificationDialog by remember { mutableStateOf(false) }
     var showThemeMenu by remember { mutableStateOf(false) }
     var showProfileMenu by remember { mutableStateOf(false) }
+    var showLanguageMenu by remember { mutableStateOf(false) }
 
+    val cachedFullName by viewModel.profileFullName.collectAsState()
+    val cachedDob by viewModel.profileDob.collectAsState()
+    val cachedResidency by viewModel.profileResidency.collectAsState()
+
+    var profileFullName by remember(cachedFullName, displayName) { mutableStateOf(cachedFullName ?: displayName) }
+    var profileDateOfBirth by remember(cachedDob) { mutableStateOf(cachedDob ?: "") }
+    var profileResidency by remember(cachedResidency) { mutableStateOf(cachedResidency ?: "") }
+    var isAuthenticated by remember { mutableStateOf(false) }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    LaunchedEffect(Unit) {
+        isAuthenticated = com.example.utils.BiometricHelper.authenticate(context)
+        if (isAuthenticated) {
+            viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
+        }
+    }
+    
+    var photoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    
     val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        if (bitmap != null) {
-            val outputStream = java.io.ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-            val base64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
-            viewModel.updateProfilePhoto(base64)
+        androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && photoUri != null) {
+            try {
+                val resolver = context.contentResolver
+                val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(resolver, photoUri!!))
+                } else {
+                    android.provider.MediaStore.Images.Media.getBitmap(resolver, photoUri)
+                }
+                
+                // Crop to square
+                val size = Math.min(bitmap.width, bitmap.height)
+                val x = (bitmap.width - size) / 2
+                val y = (bitmap.height - size) / 2
+                val squaredBitmap = android.graphics.Bitmap.createBitmap(bitmap, x, y, size, size)
+                
+                // Resize to reasonable size for base64 saving
+                val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(squaredBitmap, 400, 400, true)
+                val outputStream = java.io.ByteArrayOutputStream()
+                scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, outputStream)
+                val base64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                viewModel.updateProfilePhoto(base64)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val imageDir = java.io.File(context.cacheDir, "images")
+            if (!imageDir.exists()) imageDir.mkdirs()
+            val file = java.io.File(imageDir, "profile_photo_${System.currentTimeMillis()}.jpg")
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            photoUri = uri
+            cameraLauncher.launch(uri)
         }
     }
 
@@ -132,7 +284,14 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
                             enabled = false
                         )
                         DropdownMenuItem(
-                            text = { Text("Se déconnecter", color = MaterialTheme.colorScheme.error) },
+                            text = { Text("Paramètres") },
+                            onClick = {
+                                showProfileMenu = false
+                                onNavigateToSettings()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(Translations.get(language, "logout"), color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 showProfileMenu = false
                                 com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
@@ -152,12 +311,53 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             item {
-                DigitalCardSection(
-                    memberId = memberId,
-                    isVerified = isVerified,
-                    profilePhotoBase64 = profilePhoto,
-                    cardTheme = cardTheme
-                )
+                if (isAuthenticated) {
+                    DigitalCardSection(
+                        memberId = memberId,
+                        isVerified = isVerified,
+                        profilePhotoBase64 = profilePhoto,
+                        cardTheme = cardTheme,
+                        fullName = profileFullName,
+                        dateOfBirth = profileDateOfBirth,
+                        residency = profileResidency,
+                        expiryDate = expiryDate,
+                        language = language
+                    )
+                } else {
+                    val coroutineScope = rememberCoroutineScope()
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                            .clickable {
+                                coroutineScope.launch {
+                                    val authResult = com.example.utils.BiometricHelper.authenticate(context)
+                                    isAuthenticated = authResult
+                                    if (authResult) {
+                                        viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
+                                    }
+                                }
+                            },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = "Locked",
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Digital ID Locked", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Tap to authenticate with biometrics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
             }
 
             item {
@@ -165,14 +365,25 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    OutlinedButton(onClick = { cameraLauncher.launch(null) }) {
+                    OutlinedButton(onClick = { 
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            val imageDir = java.io.File(context.cacheDir, "images")
+                            if (!imageDir.exists()) imageDir.mkdirs()
+                            val file = java.io.File(imageDir, "profile_photo_${System.currentTimeMillis()}.jpg")
+                            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                            photoUri = uri
+                            cameraLauncher.launch(uri)
+                        } else {
+                            permissionLauncher.launch(android.Manifest.permission.CAMERA)
+                        }
+                    }) {
                         Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Prendre une photo")
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Photo")
+                        Text(Translations.get(language, "take_photo"))
                     }
                     Box {
                         OutlinedButton(onClick = { showThemeMenu = true }) {
-                            Text("Thème de la carte")
+                            Text(Translations.get(language, "card_theme"))
                         }
                         DropdownMenu(
                             expanded = showThemeMenu,
@@ -192,7 +403,49 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
                             )
                         }
                     }
+                    Box {
+                        OutlinedButton(onClick = { showLanguageMenu = true }) {
+                            Text(Translations.get(language, "language") + ": " + language.uppercase())
+                        }
+                        DropdownMenu(
+                            expanded = showLanguageMenu,
+                            onDismissRequest = { showLanguageMenu = false }
+                        ) {
+                            DropdownMenuItem(text = { Text("Français") }, onClick = { viewModel.updateLanguage("fr"); showLanguageMenu = false })
+                            DropdownMenuItem(text = { Text("English") }, onClick = { viewModel.updateLanguage("en"); showLanguageMenu = false })
+                            DropdownMenuItem(text = { Text("العربية") }, onClick = { viewModel.updateLanguage("ar"); showLanguageMenu = false })
+                        }
+                    }
                 }
+            }
+            
+            item {
+                com.example.ui.components.MosquesSection()
+            }
+            
+            item {
+                com.example.ui.components.PrayerTimesSection()
+            }
+            
+            item {
+                ProfileDetailsSection(
+                    fullName = profileFullName,
+                    dateOfBirth = profileDateOfBirth,
+                    residency = profileResidency,
+                    onFullNameChange = { 
+                        profileFullName = it
+                        viewModel.updateProfileFullName(it) 
+                    },
+                    onDateOfBirthChange = { 
+                        profileDateOfBirth = it
+                        viewModel.updateProfileDob(it) 
+                    },
+                    onResidencyChange = { 
+                        profileResidency = it
+                        viewModel.updateProfileResidency(it) 
+                    },
+                    language = language
+                )
             }
             
             if (!isVerified) {
@@ -201,13 +454,15 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
                 }
             }
 
-            item {
-                ProfileQrSection(memberId = memberId, isVerified = isVerified)
+            if (isAuthenticated) {
+                item {
+                    ProfileQrSection(memberId = memberId, isVerified = isVerified)
+                }
             }
 
             item {
                 Text(
-                    text = "Historique d'Événements",
+                    text = Translations.get(language, "history"),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -218,7 +473,7 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
             if (tickets.isEmpty()) {
                 item {
                     Text(
-                        text = "Aucune participation pour l'instant.",
+                        text = Translations.get(language, "no_participation"),
                         modifier = Modifier.padding(horizontal = 20.dp),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
@@ -233,6 +488,34 @@ fun ProfileScreen(viewModel: EventViewModel, onLogout: () -> Unit) {
                             event = event,
                             onCancel = { viewModel.cancelTicket(ticket) }
                         )
+                    }
+                }
+            }
+
+            if (isAuthenticated) {
+                item {
+                    Divider(modifier = Modifier.padding(vertical = 16.dp))
+                    Text(
+                        text = "Journal d'Activité Sécurisé (Mémorial)",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    )
+                }
+
+                if (activityLogs.isEmpty()) {
+                    item {
+                        Text(
+                            text = "Aucune activité enregistrée.",
+                            modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                        )
+                    }
+                } else {
+                    items(activityLogs) { log ->
+                        ActivityLogCard(log)
                     }
                 }
             }
@@ -255,7 +538,12 @@ fun DigitalCardSection(
     memberId: String,
     isVerified: Boolean,
     profilePhotoBase64: String?,
-    cardTheme: Int
+    cardTheme: Int,
+    fullName: String,
+    dateOfBirth: String,
+    residency: String,
+    expiryDate: String,
+    language: String
 ) {
     val themeColors = when (cardTheme) {
         1 -> listOf(Color(0xFF003366), Color(0xFF001133)) // Ocean
@@ -293,14 +581,14 @@ fun DigitalCardSection(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "CARTE DE MEMBRE",
+                            text = Translations.get(language, "identity_card"),
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White.copy(alpha = 0.7f),
                             letterSpacing = 1.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Ahmed Hassan",
+                            text = if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -339,7 +627,7 @@ fun DigitalCardSection(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isVerified) "VÉRIFIÉ PREMIUM" else "NON VÉRIFIÉ",
+                                text = if (isVerified) Translations.get(language, "verified_premium") else Translations.get(language, "unverified"),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
@@ -357,32 +645,96 @@ fun DigitalCardSection(
                     verticalAlignment = Alignment.Bottom
                 ) {
                     Column {
-                        Text(
-                            text = "ORGANISATION",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.6f),
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = "Grande Mosquée de Paris",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White
-                        )
+                        Row {
+                            Column {
+                                Text(
+                                    text = Translations.get(language, "date_of_birth"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    letterSpacing = 1.sp,
+                                    fontSize = 8.sp
+                                )
+                                Text(
+                                    text = if (dateOfBirth.isNotBlank()) dateOfBirth else "--/--/----",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text(
+                                    text = Translations.get(language, "residence"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    letterSpacing = 1.sp,
+                                    fontSize = 8.sp
+                                )
+                                Text(
+                                    text = if (residency.isNotBlank()) residency else Translations.get(language, "not_specified"),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "ID NUMBER",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.6f),
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = memberId,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            letterSpacing = 2.sp,
-                            color = Color.White
-                        )
+                        Row {
+                            Column {
+                                Text(
+                                    text = Translations.get(language, "id_number"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    letterSpacing = 1.sp,
+                                    fontSize = 8.sp
+                                )
+                                Text(
+                                    text = memberId,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    letterSpacing = 1.sp,
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text(
+                                    text = Translations.get(language, "expiry_date"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    letterSpacing = 1.sp,
+                                    fontSize = 8.sp
+                                )
+                                Text(
+                                    text = expiryDate,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    letterSpacing = 1.sp,
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column {
+                            Text(
+                                text = Translations.get(language, "signature"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.6f),
+                                letterSpacing = 1.sp,
+                                fontSize = 8.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(1.dp)
+                                    .background(Color.White.copy(alpha = 0.4f))
+                            )
+                        }
                     }
                     Box(
                         modifier = Modifier
@@ -430,6 +782,7 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
         """.trimIndent()
         
         qrBitmapState = QRCodeGenerator.generateQRCode(securePayload, 512)
+        com.example.nfc.ProfileApduService.activePayload = securePayload
     }
 
     if (isDynamicMode) {
@@ -451,6 +804,7 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
             securePayload = "idmuslim://identity/$memberId?verified=$isVerified"
             currentSignature = "static-signed-pki"
             qrBitmapState = QRCodeGenerator.generateQRCode(securePayload, 512)
+            com.example.nfc.ProfileApduService.activePayload = securePayload
         }
     }
 
@@ -585,6 +939,31 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
             
             Spacer(modifier = Modifier.height(16.dp))
             
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "NFC Enabled",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "NFC Tap Ready",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
             if (isDynamicMode) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -670,6 +1049,59 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
     }
 }
     
+@Composable
+fun ActivityLogCard(log: com.example.data.ActivityLogEntity) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (log.actionType == "NFC_VERIFIED") Icons.Default.Info else Icons.Default.Security,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = log.actionType,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = log.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                val dateStr = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(log.timestamp))
+                Text(
+                    text = dateStr,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun TicketHistoryCard(ticket: TicketEntity, event: EventEntity, onCancel: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
@@ -983,6 +1415,86 @@ fun VerificationWorkflowDialog(onDismiss: () -> Unit, onVerified: () -> Unit) {
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProfileDetailsSection(
+    fullName: String,
+    dateOfBirth: String,
+    residency: String,
+    onFullNameChange: (String) -> Unit,
+    onDateOfBirthChange: (String) -> Unit,
+    onResidencyChange: (String) -> Unit,
+    language: String
+) {
+    var isEditing by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = Translations.get(language, "personal_info"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(onClick = { isEditing = !isEditing }) {
+                    Text(text = if (isEditing) Translations.get(language, "save") else Translations.get(language, "edit"))
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            OutlinedTextField(
+                value = fullName,
+                onValueChange = onFullNameChange,
+                label = { Text(Translations.get(language, "full_name")) },
+                readOnly = !isEditing,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                shape = RoundedCornerShape(12.dp)
+            )
+            
+            OutlinedTextField(
+                value = dateOfBirth,
+                onValueChange = onDateOfBirthChange,
+                label = { Text(Translations.get(language, "dob_label")) },
+                readOnly = !isEditing,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                shape = RoundedCornerShape(12.dp)
+            )
+            
+            OutlinedTextField(
+                value = residency,
+                onValueChange = onResidencyChange,
+                label = { Text(Translations.get(language, "residence_label")) },
+                readOnly = !isEditing,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                shape = RoundedCornerShape(12.dp)
+            )
+            
+            if (!isEditing) {
+                Text(
+                    text = Translations.get(language, "privacy_msg"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
             }
         }
     }

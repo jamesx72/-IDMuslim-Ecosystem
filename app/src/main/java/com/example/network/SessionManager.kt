@@ -15,6 +15,9 @@ class SessionManager(context: Context) {
         private const val KEY_IS_VERIFIED = "is_verified"
         private const val KEY_PROFILE_PHOTO = "profile_photo"
         private const val KEY_CARD_THEME = "card_theme"
+        private const val KEY_PROFILE_FULL_NAME = "profile_full_name"
+        private const val KEY_PROFILE_DOB = "profile_dob"
+        private const val KEY_PROFILE_RESIDENCY = "profile_residency"
     }
 
     fun saveAuthToken(token: String) {
@@ -48,6 +51,46 @@ class SessionManager(context: Context) {
 
     fun getCardTheme(): Int {
         return prefs.getInt(KEY_CARD_THEME, 0)
+    }
+
+    fun saveLanguage(language: String) {
+        prefs.edit().putString("KEY_LANGUAGE", language).apply()
+    }
+
+    fun getLanguage(): String {
+        return prefs.getString("KEY_LANGUAGE", "fr") ?: "fr"
+    }
+
+    fun savePrayerNotifications(enabled: Boolean) {
+        prefs.edit().putBoolean("KEY_PRAYER_NOTIFICATIONS", enabled).apply()
+    }
+
+    fun getPrayerNotifications(): Boolean {
+        return prefs.getBoolean("KEY_PRAYER_NOTIFICATIONS", true)
+    }
+
+    fun saveProfileFullName(fullName: String) {
+        prefs.edit().putString(KEY_PROFILE_FULL_NAME, fullName).apply()
+    }
+
+    fun getProfileFullName(): String? {
+        return prefs.getString(KEY_PROFILE_FULL_NAME, null)
+    }
+
+    fun saveProfileDob(dob: String) {
+        prefs.edit().putString(KEY_PROFILE_DOB, dob).apply()
+    }
+
+    fun getProfileDob(): String? {
+        return prefs.getString(KEY_PROFILE_DOB, null)
+    }
+
+    fun saveProfileResidency(residency: String) {
+        prefs.edit().putString(KEY_PROFILE_RESIDENCY, residency).apply()
+    }
+
+    fun getProfileResidency(): String? {
+        return prefs.getString(KEY_PROFILE_RESIDENCY, null)
     }
     
     fun logout() {

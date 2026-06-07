@@ -18,10 +18,31 @@ import java.util.UUID
 
 class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: EventRepository
+    private val activityLogDao: com.example.data.ActivityLogDao
 
     init {
-        val eventDao = AppDatabase.getDatabase(application).eventDao()
+        val database = AppDatabase.getDatabase(application)
+        val eventDao = database.eventDao()
+        activityLogDao = database.activityLogDao()
         repository = EventRepository(eventDao)
+    }
+
+    val activityLogs: StateFlow<List<com.example.data.ActivityLogEntity>> = activityLogDao.getAllLogs().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    fun logActivity(actionType: String, description: String) {
+        viewModelScope.launch {
+            activityLogDao.insertLog(
+                com.example.data.ActivityLogEntity(
+                    timestamp = System.currentTimeMillis(),
+                    actionType = actionType,
+                    description = description
+                )
+            )
+        }
     }
 
     private val _isUserVerified = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isUserVerified())
@@ -32,6 +53,21 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _cardTheme = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getCardTheme())
     val cardTheme: StateFlow<Int> = _cardTheme.asStateFlow()
+
+    private val _language = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getLanguage())
+    val language: StateFlow<String> = _language.asStateFlow()
+
+    private val _prayerNotifications = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrayerNotifications())
+    val prayerNotifications: StateFlow<Boolean> = _prayerNotifications.asStateFlow()
+
+    private val _profileFullName = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileFullName())
+    val profileFullName: StateFlow<String?> = _profileFullName.asStateFlow()
+
+    private val _profileDob = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileDob())
+    val profileDob: StateFlow<String?> = _profileDob.asStateFlow()
+
+    private val _profileResidency = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileResidency())
+    val profileResidency: StateFlow<String?> = _profileResidency.asStateFlow()
 
     fun verifyIdentity(success: Boolean = true) {
         com.example.network.ApiClient.getSessionManager().setVerifiedStatus(success)
@@ -46,6 +82,31 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun updateCardTheme(themeIndex: Int) {
         com.example.network.ApiClient.getSessionManager().saveCardTheme(themeIndex)
         _cardTheme.value = themeIndex
+    }
+
+    fun updateLanguage(lang: String) {
+        com.example.network.ApiClient.getSessionManager().saveLanguage(lang)
+        _language.value = lang
+    }
+
+    fun updatePrayerNotifications(enabled: Boolean) {
+        com.example.network.ApiClient.getSessionManager().savePrayerNotifications(enabled)
+        _prayerNotifications.value = enabled
+    }
+
+    fun updateProfileFullName(fullName: String) {
+        com.example.network.ApiClient.getSessionManager().saveProfileFullName(fullName)
+        _profileFullName.value = fullName
+    }
+
+    fun updateProfileDob(dob: String) {
+        com.example.network.ApiClient.getSessionManager().saveProfileDob(dob)
+        _profileDob.value = dob
+    }
+
+    fun updateProfileResidency(residency: String) {
+        com.example.network.ApiClient.getSessionManager().saveProfileResidency(residency)
+        _profileResidency.value = residency
     }
 
     val allEvents: StateFlow<List<EventEntity>> = repository.allEvents.stateIn(

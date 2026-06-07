@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -30,6 +31,7 @@ import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.EventDetailScreen
 import com.example.ui.screens.EventsScreen
 import com.example.ui.screens.ScannerScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AuthScreen
@@ -44,6 +46,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Scanner : Screen("scanner", "Scanner", Icons.Default.QrCodeScanner)
     object Events : Screen("events", "Événements", Icons.Default.Event)
     object Admin : Screen("admin", "Admin", Icons.Default.AdminPanelSettings)
+    object Settings : Screen("settings", "Paramètres", Icons.Default.Settings)
     object CreateEvent : Screen("create_event", "Créer un événement", null)
     object EventDetail : Screen("event_detail/{eventId}", "Détails", null) {
         fun createRoute(eventId: Int) = "event_detail/$eventId"
@@ -134,11 +137,20 @@ fun IDMuslimApp() {
                         navController.navigate(Screen.Auth.route) {
                             popUpTo(0) { inclusive = true }
                         }
+                    },
+                    onNavigateToSettings = {
+                        navController.navigate(Screen.Settings.route)
                     }
                 )
             }
             composable(Screen.Scanner.route) {
                 ScannerScreen()
+            }
+            composable(Screen.Settings.route) {
+                SettingsScreen(
+                    viewModel = eventViewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
             }
             composable(Screen.Events.route) {
                 EventsScreen(

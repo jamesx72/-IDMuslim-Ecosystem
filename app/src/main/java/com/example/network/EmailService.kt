@@ -89,6 +89,35 @@ object EmailService {
         }
     }
 
+    suspend fun sendVerificationEmail(userEmail: String, code: String) {
+        val apiKey = BuildConfig.SENDGRID_API_KEY
+        if (apiKey.isEmpty() || apiKey == "YOUR_SENDGRID_API_KEY") {
+            println("Verification email not sent: SendGrid API Key missing.")
+            return
+        }
+
+        val request = SendGridEmailRequest(
+            personalizations = listOf(
+                SendGridPersonalization(to = listOf(SendGridEmailTo(userEmail)))
+            ),
+            from = SendGridFrom(email = "noreply@idmuslim.com", name = "IDMuslim Security"),
+            subject = "Code de vérification IDMuslim",
+            content = listOf(
+                SendGridContent(
+                    type = "text/plain",
+                    value = "Bonjour,\n\nVotre code de vérification est : $code\n\nMerci,\nL'équipe IDMuslim"
+                )
+            )
+        )
+
+        try {
+            api?.sendEmail("Bearer $apiKey", request)
+            println("Verification email successfully sent to $userEmail via SendGrid.")
+        } catch (e: Exception) {
+            println("Failed to send verification email: ${e.message}")
+        }
+    }
+
     suspend fun sendWaitlistJoinedEmail(userEmail: String, eventTitle: String) {
         val apiKey = BuildConfig.SENDGRID_API_KEY
         if (apiKey.isEmpty() || apiKey == "YOUR_SENDGRID_API_KEY") {

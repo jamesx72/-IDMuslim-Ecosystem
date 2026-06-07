@@ -24,6 +24,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.viewmodels.EventViewModel
+import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
+import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
+import com.patrykandpatrick.vico.compose.chart.Chart
+import com.patrykandpatrick.vico.compose.chart.column.columnChart
+import com.patrykandpatrick.vico.core.entry.entryModelOf
 
 data class Member(
     val id: String,
@@ -43,6 +48,28 @@ val mockMembers = listOf(
 @Composable
 fun AdminDashboardScreen(viewModel: EventViewModel) {
     val events by viewModel.allEvents.collectAsState()
+    val activityLogs by viewModel.activityLogs.collectAsState()
+
+    val chartEntryModel = remember(activityLogs) {
+        val counts = mutableMapOf<Int, Int>()
+        val calendar = java.util.Calendar.getInstance()
+        activityLogs.forEach { log ->
+            calendar.timeInMillis = log.timestamp
+            val dayOfYear = calendar.get(java.util.Calendar.DAY_OF_YEAR)
+            counts[dayOfYear] = counts.getOrDefault(dayOfYear, 0) + 1
+        }
+        val today = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
+        
+        entryModelOf(
+            counts.getOrDefault(today - 6, 0),
+            counts.getOrDefault(today - 5, 0),
+            counts.getOrDefault(today - 4, 0),
+            counts.getOrDefault(today - 3, 0),
+            counts.getOrDefault(today - 2, 0),
+            counts.getOrDefault(today - 1, 0),
+            counts.getOrDefault(today, 0)
+        )
+    }
 
     val totalEvents = events.size
     val totalRegistrations = events.sumOf { it.maxTickets - it.availableTickets }
@@ -109,6 +136,34 @@ fun AdminDashboardScreen(viewModel: EventViewModel) {
                         value = "$totalRevenue €",
                         icon = Icons.Default.AttachMoney
                     )
+                }
+            }
+
+            item {
+                Text(
+                    text = "Tendances d'Activité (7 derniers jours)",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().height(220.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Box(modifier = Modifier.padding(16.dp)) {
+                        Chart(
+                            chart = columnChart(),
+                            model = chartEntryModel,
+                            startAxis = rememberStartAxis(),
+                            bottomAxis = rememberBottomAxis(),
+                        )
+                    }
                 }
             }
 

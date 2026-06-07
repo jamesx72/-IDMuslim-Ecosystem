@@ -31,7 +31,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.network.ApiClient
+import com.example.network.EmailService
+import com.example.network.SessionManager
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 import androidx.compose.ui.platform.testTag
 
@@ -44,6 +48,10 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
 
+    var verificationMode by remember { mutableStateOf(false) }
+    var verificationCode by remember { mutableStateOf("") }
+    var generatedCode by remember { mutableStateOf("") }
+
     var isPasswordVisible by remember { mutableStateOf(false) }
     var isConfirmPasswordVisible by remember { mutableStateOf(false) }
 
@@ -53,6 +61,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
 
     val auth = FirebaseAuth.getInstance()
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Fields error states
     var isEmailError by remember { mutableStateOf(false) }
@@ -152,14 +161,6 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                             .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = if (isSignUp) "Inscription" else "Connexion",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 20.dp)
-                        )
-
                         // Error message banner
                         AnimatedVisibility(visible = errorMessage != null) {
                             errorMessage?.let { msg ->
@@ -201,6 +202,58 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 }
                             }
                         }
+
+                        if (verificationMode) {
+                            Text(
+                                text = "Code de vérification",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 20.dp)
+                            )
+                            
+                            Text(
+                                text = "Un code a été envoyé à $email.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(bottom = 16.dp),
+                                textAlign = TextAlign.Center
+                            )
+
+                            OutlinedTextField(
+                                value = verificationCode,
+                                onValueChange = { verificationCode = it },
+                                label = { Text("Code à 6 chiffres") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Button(
+                                onClick = {
+                                    if (verificationCode.trim() == generatedCode) {
+                                        successMessage = "Vérification réussie !"
+                                        onAuthSuccess()
+                                    } else {
+                                        errorMessage = "Le code est incorrect."
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("Valider et Continuer", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
+                        } else {
+                            Text(
+                                text = if (isSignUp) "Inscription" else "Connexion",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 20.dp)
+                            )
 
                         // Name Field (Sign Up Only)
                         AnimatedVisibility(visible = isSignUp) {
@@ -356,8 +409,13 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                                         }
                                                     }
 
-                                                    successMessage = "Inscription réussie!"
-                                                    onAuthSuccess()
+                                                    val code = Random.nextInt(100000, 999999).toString()
+                                                    generatedCode = code
+                                                    coroutineScope.launch {
+                                                        EmailService.sendVerificationEmail(email, code)
+                                                    }
+                                                    successMessage = "Inscription réussie. Veuillez vérifier votre email."
+                                                    verificationMode = true
                                                 } else {
                                                     errorMessage = task.exception?.localizedMessage ?: "L'inscription a échoué."
                                                 }
@@ -424,6 +482,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
                             )
+                        }
                         }
                     }
                 }
