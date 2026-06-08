@@ -66,6 +66,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _prayerNotifications = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrayerNotifications())
     val prayerNotifications: StateFlow<Boolean> = _prayerNotifications.asStateFlow()
 
+    private val _darkTheme = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getDarkTheme())
+    val darkTheme: StateFlow<String> = _darkTheme.asStateFlow()
+
     private val _profileFullName = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileFullName())
     val profileFullName: StateFlow<String?> = _profileFullName.asStateFlow()
 
@@ -75,12 +78,27 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _profileResidency = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileResidency())
     val profileResidency: StateFlow<String?> = _profileResidency.asStateFlow()
 
+    private val _profileCommunityAffiliation = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileCommunityAffiliation())
+    val profileCommunityAffiliation: StateFlow<String?> = _profileCommunityAffiliation.asStateFlow()
+
     fun setVerificationStatus(status: String) {
         com.example.network.ApiClient.getSessionManager().saveVerificationStatus(status)
         _verificationStatus.value = status
         val isVerified = (status == "VERIFIED")
         com.example.network.ApiClient.getSessionManager().setVerifiedStatus(isVerified)
         _isUserVerified.value = isVerified
+        
+        if (isVerified) {
+            viewModelScope.launch {
+                try {
+                    val userEmail = com.example.network.ApiClient.getSessionManager().getUserEmail()
+                    val fullName = com.example.network.ApiClient.getSessionManager().getProfileFullName() ?: ""
+                    EmailService.sendIdentityVerifiedEmail(userEmail, fullName)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
     fun verifyIdentity(success: Boolean = true) {
@@ -127,6 +145,11 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         _prayerNotifications.value = enabled
     }
 
+    fun updateDarkTheme(theme: String) {
+        com.example.network.ApiClient.getSessionManager().saveDarkTheme(theme)
+        _darkTheme.value = theme
+    }
+
     fun updateProfileFullName(fullName: String) {
         com.example.network.ApiClient.getSessionManager().saveProfileFullName(fullName)
         _profileFullName.value = fullName
@@ -140,6 +163,11 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun updateProfileResidency(residency: String) {
         com.example.network.ApiClient.getSessionManager().saveProfileResidency(residency)
         _profileResidency.value = residency
+    }
+
+    fun updateProfileCommunityAffiliation(community: String) {
+        com.example.network.ApiClient.getSessionManager().saveProfileCommunityAffiliation(community)
+        _profileCommunityAffiliation.value = community
     }
 
     val allEvents: StateFlow<List<EventEntity>> = repository.allEvents.stateIn(

@@ -12,7 +12,7 @@ import com.example.ui.theme.IDMuslimTheme
 class MainActivity : FragmentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    
+
     // Initialize secure network stack, Firebase and middleware
     com.example.utils.FirebaseHelper.initialize(this)
     ApiClient.initialize(this)

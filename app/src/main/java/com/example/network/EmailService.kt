@@ -89,6 +89,36 @@ object EmailService {
         }
     }
 
+    suspend fun sendIdentityVerifiedEmail(userEmail: String, fullName: String) {
+        val apiKey = BuildConfig.SENDGRID_API_KEY
+        if (apiKey.isEmpty() || apiKey == "YOUR_SENDGRID_API_KEY") {
+            println("Identity verified email not sent: SendGrid API Key is missing. Please configure it in the Secrets panel.")
+            return
+        }
+
+        val nameGreeting = if (fullName.isNotBlank()) " $fullName" else ""
+        val request = SendGridEmailRequest(
+            personalizations = listOf(
+                SendGridPersonalization(to = listOf(SendGridEmailTo(userEmail)))
+            ),
+            from = SendGridFrom(email = "security@idmuslim.com", name = "IDMuslim Sécurité"),
+            subject = "Votre identité IDMuslim a été validée d'un badge vérifié !",
+            content = listOf(
+                SendGridContent(
+                    type = "text/plain",
+                    value = "Bonjour$nameGreeting,\n\nFélicitations ! Votre demande de vérification d'identité a été évaluée avec succès par notre équipe d'accréditation numérique. Votre compte a désormais reçu le label de citoyen officiel et votre badge électronique 'VÉRIFIÉ' a été ajouté à votre profil.\n\nVous bénéficiez à présent d'un accès sécurisé à l'ensemble du réseau biométrique et événementiel d'IDMuslim.\n\nMerci,\nL'équipe Sécurité IDMuslim"
+                )
+            )
+        )
+
+        try {
+            api?.sendEmail("Bearer $apiKey", request)
+            println("Identity verification approval email successfully sent to $userEmail via SendGrid.")
+        } catch (e: Exception) {
+            println("Failed to send identity verification approval email: ${e.message}")
+        }
+    }
+
     suspend fun sendVerificationEmail(userEmail: String, code: String) {
         val apiKey = BuildConfig.SENDGRID_API_KEY
         if (apiKey.isEmpty() || apiKey == "YOUR_SENDGRID_API_KEY") {

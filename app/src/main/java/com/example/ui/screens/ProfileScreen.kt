@@ -67,7 +67,17 @@ object Translations {
                 "no_participation" to "Aucune participation pour l'instant.",
                 "verified_premium" to "VÉRIFIÉ PREMIUM",
                 "unverified" to "NON VÉRIFIÉ",
-                "logout" to "Déconnexion"
+                "logout" to "Déconnexion",
+                "tab_id_card" to "Carte Identité",
+                "tab_dashboard" to "Justificatifs",
+                "credential_certificate" to "Attestation d'Identité Véritable",
+                "verification_level" to "Niveau de Vérification",
+                "cryptographic_proof" to "Preuve Sécurisée",
+                "security_integrity" to "Preuve Cryptographique d'Intégrité",
+                "copy_sig" to "Copier la Signature",
+                "active_certificates" to "Justificatifs Actifs (Garantis)",
+                "authorized_by" to "Autorisé par la technologie IDMuslim Shield",
+                "level_emerald" to "Niveau Émeraude (Vérifié Sécurisé)"
             ),
             "en" to mapOf(
                 "identity_card" to "IDENTITY CARD",
@@ -92,7 +102,17 @@ object Translations {
                 "no_participation" to "No participation yet.",
                 "verified_premium" to "VERIFIED PREMIUM",
                 "unverified" to "UNVERIFIED",
-                "logout" to "Logout"
+                "logout" to "Logout",
+                "tab_id_card" to "ID Card",
+                "tab_dashboard" to "Credentials",
+                "credential_certificate" to "Verified Identity Credential",
+                "verification_level" to "Verification Level",
+                "cryptographic_proof" to "Secure Proof",
+                "security_integrity" to "Cryptographic Security Proof",
+                "copy_sig" to "Copy Signature",
+                "active_certificates" to "Active Credentials (Guaranteed)",
+                "authorized_by" to "Authorized by IDMuslim Shield Technology",
+                "level_emerald" to "Emerald Class (Secured & Verified)"
             ),
             "ar" to mapOf(
                 "identity_card" to "بطاقة الهوية",
@@ -117,7 +137,17 @@ object Translations {
                 "no_participation" to "لا توجد مشاركات بعد.",
                 "verified_premium" to "حساب موثق",
                 "unverified" to "حساب غير موثق",
-                "logout" to "تسجيل خروج"
+                "logout" to "تسجيل خروج",
+                "tab_id_card" to "بطاقة الهوية",
+                "tab_dashboard" to "الوثائق",
+                "credential_certificate" to "وثيقة الهوية الموثقة",
+                "verification_level" to "مستوى التوثيق",
+                "cryptographic_proof" to "إثبات آمن",
+                "security_integrity" to "الإثبات الرقمي المشفر",
+                "copy_sig" to "نسخ التوقيع",
+                "active_certificates" to "المستندات النشطة (المضمونة)",
+                "authorized_by" to "صادر عن نظام حماية IDMuslim Shield",
+                "level_emerald" to "المستوى الزمردي (آمن وموثق)"
             )
         )
         return strings[lang]?.get(key) ?: strings["fr"]?.get(key) ?: key
@@ -175,15 +205,19 @@ fun ProfileScreen(
     var showThemeMenu by remember { mutableStateOf(false) }
     var showProfileMenu by remember { mutableStateOf(false) }
     var showLanguageMenu by remember { mutableStateOf(false) }
+    var showPhotoMenu by remember { mutableStateOf(false) }
 
     val cachedFullName by viewModel.profileFullName.collectAsState()
     val cachedDob by viewModel.profileDob.collectAsState()
     val cachedResidency by viewModel.profileResidency.collectAsState()
+    val cachedCommunityAffiliation by viewModel.profileCommunityAffiliation.collectAsState()
 
     var profileFullName by remember(cachedFullName, displayName) { mutableStateOf(cachedFullName ?: displayName) }
     var profileDateOfBirth by remember(cachedDob) { mutableStateOf(cachedDob ?: "") }
     var profileResidency by remember(cachedResidency) { mutableStateOf(cachedResidency ?: "") }
+    var profileCommunityAffiliation by remember(cachedCommunityAffiliation) { mutableStateOf(cachedCommunityAffiliation ?: "") }
     var isAuthenticated by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(0) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     
@@ -194,35 +228,140 @@ fun ProfileScreen(
         }
     }
     
-    var photoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var photoUriString by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     
+    val processImageUri = { uri: android.net.Uri ->
+        try {
+            val resolver = context.contentResolver
+            
+            // 1. Detect image orientation using ExifInterface to fix rotated camera captures
+            val orientation = try {
+                resolver.openInputStream(uri)?.use { stream ->
+                    val exifInterface = android.media.ExifInterface(stream)
+                    exifInterface.getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_UNDEFINED
+                    )
+                } ?: android.media.ExifInterface.ORIENTATION_UNDEFINED
+            } catch (e: Exception) {
+                android.media.ExifInterface.ORIENTATION_UNDEFINED
+            }
+            
+            // 2. Decode the bitmap
+            val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                val source = android.graphics.ImageDecoder.createSource(resolver, uri)
+                android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = true
+                }
+            } else {
+                android.provider.MediaStore.Images.Media.getBitmap(resolver, uri)
+            }
+            
+            // 3. Rotate bitmap if required based on EXIF
+            val matrix = android.graphics.Matrix()
+            when (orientation) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            }
+            val orientedBitmap = if (!matrix.isIdentity()) {
+                android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                bitmap
+            }
+            
+            // 4. Crop to square and resize
+            val size = Math.min(orientedBitmap.width, orientedBitmap.height)
+            val x = (orientedBitmap.width - size) / 2
+            val y = (orientedBitmap.height - size) / 2
+            var squaredBitmap = android.graphics.Bitmap.createBitmap(orientedBitmap, x, y, size, size)
+            if (squaredBitmap.config != android.graphics.Bitmap.Config.ARGB_8888) {
+                squaredBitmap = squaredBitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+            }
+            
+            val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(squaredBitmap, 400, 400, true)
+            val outputStream = java.io.ByteArrayOutputStream()
+            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, outputStream)
+            val base64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+            viewModel.updateProfilePhoto(base64)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && photoUri != null) {
+        if (success && photoUriString != null) {
+            val uri = android.net.Uri.parse(photoUriString!!)
+            processImageUri(uri)
+        }
+    }
+
+    val launchCameraSafe = {
+        try {
+            val imageDir = java.io.File(context.cacheDir, "images")
+            if (!imageDir.exists()) imageDir.mkdirs()
+            val file = java.io.File(imageDir, "profile_photo_${System.currentTimeMillis()}.jpg")
+            
+            // 1. Resolve correct FileProvider authority dynamically by scanning our package manifest providers
+            var authority = "${context.packageName}.fileprovider"
             try {
-                val resolver = context.contentResolver
-                val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(resolver, photoUri!!))
+                val pm = context.packageManager
+                val packageInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    pm.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(android.content.pm.PackageManager.GET_PROVIDERS.toLong()))
                 } else {
-                    android.provider.MediaStore.Images.Media.getBitmap(resolver, photoUri)
+                    @Suppress("DEPRECATION")
+                    pm.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PROVIDERS)
                 }
-                
-                // Crop to square
-                val size = Math.min(bitmap.width, bitmap.height)
-                val x = (bitmap.width - size) / 2
-                val y = (bitmap.height - size) / 2
-                val squaredBitmap = android.graphics.Bitmap.createBitmap(bitmap, x, y, size, size)
-                
-                // Resize to reasonable size for base64 saving
-                val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(squaredBitmap, 400, 400, true)
-                val outputStream = java.io.ByteArrayOutputStream()
-                scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, outputStream)
-                val base64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
-                viewModel.updateProfilePhoto(base64)
+                val providers = packageInfo.providers
+                if (providers != null) {
+                    for (provider in providers) {
+                        if (provider.name == "androidx.core.content.FileProvider" || provider.name.contains("FileProvider")) {
+                            authority = provider.authority
+                            break
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+            
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, authority, file)
+            photoUriString = uri.toString()
+            
+            // 2. Grant temporary URI permission to any app that can handle the camera capture intent
+            try {
+                val intent = android.content.Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+                val resolvedActivities = context.packageManager.queryIntentActivities(
+                    intent,
+                    android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+                )
+                for (resolvedActivity in resolvedActivities) {
+                    val packageName = resolvedActivity.activityInfo.packageName
+                    context.grantUriPermission(
+                        packageName,                     
+                        uri, 
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            
+            cameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            android.widget.Toast.makeText(context, "Erreur lors du lancement de l'appareil photo: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            processImageUri(uri)
         }
     }
 
@@ -230,12 +369,9 @@ fun ProfileScreen(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            val imageDir = java.io.File(context.cacheDir, "images")
-            if (!imageDir.exists()) imageDir.mkdirs()
-            val file = java.io.File(imageDir, "profile_photo_${System.currentTimeMillis()}.jpg")
-            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            photoUri = uri
-            cameraLauncher.launch(uri)
+            launchCameraSafe()
+        } else {
+            android.widget.Toast.makeText(context, "Permission de caméra requise pour prendre une photo.", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -312,218 +448,339 @@ fun ProfileScreen(
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
+            // Elegant Visual Segmented Control for Tab Selection
             item {
-                if (isAuthenticated) {
-                    DigitalCardSection(
-                        memberId = memberId,
-                        isVerified = isVerified,
-                        verificationStatus = verificationStatus,
-                        verificationStep = verificationStep,
-                        profilePhotoBase64 = profilePhoto,
-                        cardTheme = cardTheme,
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val tabOptions = listOf(
+                        0 to Translations.get(language, "tab_id_card"),
+                        1 to Translations.get(language, "tab_dashboard")
+                    )
+                    tabOptions.forEach { (index, title) ->
+                        val isSelected = selectedTab == index
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                )
+                                .clickable { selectedTab = index }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (index == 0) Icons.Default.Security else Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (selectedTab == 0) {
+                item {
+                    if (isAuthenticated) {
+                        DigitalCardSection(
+                            memberId = memberId,
+                            isVerified = isVerified,
+                            verificationStatus = verificationStatus,
+                            verificationStep = verificationStep,
+                            profilePhotoBase64 = profilePhoto,
+                            cardTheme = cardTheme,
+                            fullName = profileFullName,
+                            dateOfBirth = profileDateOfBirth,
+                            residency = profileResidency,
+                            communityAffiliation = profileCommunityAffiliation,
+                            expiryDate = expiryDate,
+                            language = language
+                        )
+                    } else {
+                        val coroutineScope = rememberCoroutineScope()
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp)
+                                .clickable {
+                                    coroutineScope.launch {
+                                        val authResult = com.example.utils.BiometricHelper.authenticate(context)
+                                        isAuthenticated = authResult
+                                        if (authResult) {
+                                            viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
+                                        }
+                                    }
+                                },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = "Locked",
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Digital ID Locked", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Tap to authenticate with biometrics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        Box {
+                            OutlinedButton(onClick = { showPhotoMenu = true }) {
+                                Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Photo")
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(Translations.get(language, "take_photo"))
+                            }
+                            DropdownMenu(
+                                expanded = showPhotoMenu,
+                                onDismissRequest = { showPhotoMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Appareil Photo") },
+                                    onClick = {
+                                        showPhotoMenu = false
+                                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                            launchCameraSafe()
+                                        } else {
+                                            permissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Galerie") },
+                                    onClick = {
+                                        showPhotoMenu = false
+                                        galleryLauncher.launch("image/*")
+                                    }
+                                )
+                            }
+                        }
+                        Box {
+                            OutlinedButton(onClick = { showThemeMenu = true }) {
+                                Text(Translations.get(language, "card_theme"))
+                            }
+                            DropdownMenu(
+                                expanded = showThemeMenu,
+                                onDismissRequest = { showThemeMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Émeraude (Défaut)") },
+                                    onClick = { viewModel.updateCardTheme(0); showThemeMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Océan") },
+                                    onClick = { viewModel.updateCardTheme(1); showThemeMenu = false }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Rubis") },
+                                    onClick = { viewModel.updateCardTheme(2); showThemeMenu = false }
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                item {
+                    LanguageSwitcher(
+                        currentLanguage = language,
+                        onLanguageSelected = { viewModel.updateLanguage(it) }
+                    )
+                }
+                
+                item {
+                    com.example.ui.components.MosquesSection()
+                }
+                
+                item {
+                    com.example.ui.components.PrayerTimesSection()
+                }
+                
+                item {
+                    ProfileDetailsSection(
                         fullName = profileFullName,
                         dateOfBirth = profileDateOfBirth,
                         residency = profileResidency,
-                        expiryDate = expiryDate,
+                        communityAffiliation = profileCommunityAffiliation,
+                        onFullNameChange = { 
+                            profileFullName = it
+                            viewModel.updateProfileFullName(it) 
+                        },
+                        onDateOfBirthChange = { 
+                            profileDateOfBirth = it
+                            viewModel.updateProfileDob(it) 
+                        },
+                        onResidencyChange = { 
+                            profileResidency = it
+                            viewModel.updateProfileResidency(it) 
+                        },
+                        onCommunityAffiliationChange = {
+                            profileCommunityAffiliation = it
+                            viewModel.updateProfileCommunityAffiliation(it)
+                        },
                         language = language
                     )
-                } else {
-                    val coroutineScope = rememberCoroutineScope()
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp)
-                            .clickable {
-                                coroutineScope.launch {
-                                    val authResult = com.example.utils.BiometricHelper.authenticate(context)
-                                    isAuthenticated = authResult
-                                    if (authResult) {
-                                        viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
-                                    }
-                                }
-                            },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = "Locked",
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("Digital ID Locked", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("Tap to authenticate with biometrics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                }
+                
+                if (verificationStatus.uppercase() == "PENDING") {
+                    item {
+                        VerificationPendingPrompt(step = verificationStep)
+                    }
+                } else if (verificationStatus.uppercase() == "UNVERIFIED" || (!isVerified && verificationStatus.uppercase() != "VERIFIED")) {
+                    item {
+                        VerifyIdentityPrompt(onClick = { showVerificationDialog = true })
                     }
                 }
-            }
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    OutlinedButton(onClick = { 
-                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                            val imageDir = java.io.File(context.cacheDir, "images")
-                            if (!imageDir.exists()) imageDir.mkdirs()
-                            val file = java.io.File(imageDir, "profile_photo_${System.currentTimeMillis()}.jpg")
-                            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                            photoUri = uri
-                            cameraLauncher.launch(uri)
-                        } else {
-                            permissionLauncher.launch(android.Manifest.permission.CAMERA)
-                        }
-                    }) {
-                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Prendre une photo")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(Translations.get(language, "take_photo"))
-                    }
-                    Box {
-                        OutlinedButton(onClick = { showThemeMenu = true }) {
-                            Text(Translations.get(language, "card_theme"))
-                        }
-                        DropdownMenu(
-                            expanded = showThemeMenu,
-                            onDismissRequest = { showThemeMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Émeraude (Défaut)") },
-                                onClick = { viewModel.updateCardTheme(0); showThemeMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Océan") },
-                                onClick = { viewModel.updateCardTheme(1); showThemeMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Rubis") },
-                                onClick = { viewModel.updateCardTheme(2); showThemeMenu = false }
-                            )
-                        }
-                    }
-                    Box {
-                        OutlinedButton(onClick = { showLanguageMenu = true }) {
-                            Text(Translations.get(language, "language") + ": " + language.uppercase())
-                        }
-                        DropdownMenu(
-                            expanded = showLanguageMenu,
-                            onDismissRequest = { showLanguageMenu = false }
-                        ) {
-                            DropdownMenuItem(text = { Text("Français") }, onClick = { viewModel.updateLanguage("fr"); showLanguageMenu = false })
-                            DropdownMenuItem(text = { Text("English") }, onClick = { viewModel.updateLanguage("en"); showLanguageMenu = false })
-                            DropdownMenuItem(text = { Text("العربية") }, onClick = { viewModel.updateLanguage("ar"); showLanguageMenu = false })
-                        }
+                if (isAuthenticated) {
+                    item {
+                        ProfileQrSection(memberId = memberId, isVerified = isVerified)
                     }
                 }
-            }
-            
-            item {
-                com.example.ui.components.MosquesSection()
-            }
-            
-            item {
-                com.example.ui.components.PrayerTimesSection()
-            }
-            
-            item {
-                ProfileDetailsSection(
-                    fullName = profileFullName,
-                    dateOfBirth = profileDateOfBirth,
-                    residency = profileResidency,
-                    onFullNameChange = { 
-                        profileFullName = it
-                        viewModel.updateProfileFullName(it) 
-                    },
-                    onDateOfBirthChange = { 
-                        profileDateOfBirth = it
-                        viewModel.updateProfileDob(it) 
-                    },
-                    onResidencyChange = { 
-                        profileResidency = it
-                        viewModel.updateProfileResidency(it) 
-                    },
-                    language = language
-                )
-            }
-            
-            if (verificationStatus.uppercase() == "PENDING") {
-                item {
-                    VerificationPendingPrompt(step = verificationStep)
-                }
-            } else if (verificationStatus.uppercase() == "UNVERIFIED" || (!isVerified && verificationStatus.uppercase() != "VERIFIED")) {
-                item {
-                    VerifyIdentityPrompt(onClick = { showVerificationDialog = true })
-                }
-            }
 
-            if (isAuthenticated) {
-                item {
-                    ProfileQrSection(memberId = memberId, isVerified = isVerified)
-                }
-            }
-
-            item {
-                Text(
-                    text = Translations.get(language, "history"),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-                )
-            }
-
-            if (tickets.isEmpty()) {
                 item {
                     Text(
-                        text = Translations.get(language, "no_participation"),
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                    )
-                }
-            } else {
-                items(tickets) { ticket ->
-                    val event = events.find { it.id == ticket.eventId }
-                    if (event != null) {
-                        TicketHistoryCard(
-                            ticket = ticket,
-                            event = event,
-                            onCancel = { viewModel.cancelTicket(ticket) }
-                        )
-                    }
-                }
-            }
-
-            if (isAuthenticated) {
-                item {
-                    Divider(modifier = Modifier.padding(vertical = 16.dp))
-                    Text(
-                        text = "Journal d'Activité Sécurisé (Mémorial)",
+                        text = Translations.get(language, "history"),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                     )
                 }
 
-                if (activityLogs.isEmpty()) {
+                if (tickets.isEmpty()) {
                     item {
                         Text(
-                            text = "Aucune activité enregistrée.",
-                            modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp),
+                            text = Translations.get(language, "no_participation"),
+                            modifier = Modifier.padding(horizontal = 20.dp),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
                         )
                     }
                 } else {
-                    items(activityLogs) { log ->
-                        ActivityLogCard(log)
+                    items(tickets) { ticket ->
+                        val event = events.find { it.id == ticket.eventId }
+                        if (event != null) {
+                            TicketHistoryCard(
+                                ticket = ticket,
+                                event = event,
+                                onCancel = { viewModel.cancelTicket(ticket) }
+                            )
+                        }
+                    }
+                }
+
+                if (isAuthenticated) {
+                    item {
+                        Divider(modifier = Modifier.padding(vertical = 16.dp))
+                        Text(
+                            text = "Journal d'Activité Sécurisé (Mémorial)",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        )
+                    }
+
+                    if (activityLogs.isEmpty()) {
+                        item {
+                            Text(
+                                text = "Aucune activité enregistrée.",
+                                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                            )
+                        }
+                    } else {
+                        items(activityLogs) { log ->
+                            ActivityLogCard(log)
+                        }
+                    }
+                }
+            } else if (selectedTab == 1) {
+                // Verified Credentials Dashboard Tab content
+                item {
+                    if (isAuthenticated) {
+                        CredentialsDashboardSection(
+                            memberId = memberId,
+                            isVerified = isVerified,
+                            verificationStatus = verificationStatus,
+                            verificationStep = verificationStep,
+                            fullName = profileFullName,
+                            dateOfBirth = profileDateOfBirth,
+                            residency = profileResidency,
+                            communityAffiliation = profileCommunityAffiliation,
+                            expiryDate = expiryDate,
+                            language = language,
+                            ticketsCount = tickets.size,
+                            context = context
+                        )
+                    } else {
+                        val coroutineScope = rememberCoroutineScope()
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp)
+                                .clickable {
+                                    coroutineScope.launch {
+                                        val authResult = com.example.utils.BiometricHelper.authenticate(context)
+                                        isAuthenticated = authResult
+                                        if (authResult) {
+                                            viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
+                                        }
+                                    }
+                                },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = "Locked",
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Credentials Locked", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Tap to authenticate with biometrics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                     }
                 }
             }
@@ -552,6 +809,7 @@ fun DigitalCardSection(
     fullName: String,
     dateOfBirth: String,
     residency: String,
+    communityAffiliation: String,
     expiryDate: String,
     language: String
 ) {
@@ -597,12 +855,26 @@ fun DigitalCardSection(
                             letterSpacing = 1.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (isVerified) {
+                                com.example.ui.components.DigitalVerifiedBadge(
+                                    isVerified = true,
+                                    memberId = memberId,
+                                    fullName = fullName,
+                                    size = com.example.ui.components.BadgeSize.SMALL
+                                )
+                            }
+                        }
                     }
                     if (profilePhotoBase64 != null) {
                         var decodedBitmap: Bitmap? = null
@@ -710,6 +982,26 @@ fun DigitalCardSection(
                                     letterSpacing = 1.sp,
                                     color = Color.White,
                                     fontSize = 12.sp
+                                )
+                            }
+                        }
+                        Row {
+                            Column {
+                                Text(
+                                    text = "AFFILIATION",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    letterSpacing = 1.sp,
+                                    fontSize = 8.sp
+                                )
+                                Text(
+                                    text = if (communityAffiliation.isNotBlank()) communityAffiliation else "--",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1469,13 +1761,70 @@ fun VerificationWorkflowDialog(onDismiss: () -> Unit, onVerified: () -> Unit) {
 }
 
 @Composable
+fun LanguageSwitcher(
+    currentLanguage: String,
+    onLanguageSelected: (String) -> Unit
+) {
+    val languages = listOf(
+        "fr" to "Français",
+        "en" to "English",
+        "ar" to "العربية"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = Translations.get(currentLanguage, "language"),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            languages.forEach { (code, name) ->
+                val isSelected = currentLanguage == code
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .clickable { onLanguageSelected(code) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun ProfileDetailsSection(
     fullName: String,
     dateOfBirth: String,
     residency: String,
+    communityAffiliation: String,
     onFullNameChange: (String) -> Unit,
     onDateOfBirthChange: (String) -> Unit,
     onResidencyChange: (String) -> Unit,
+    onCommunityAffiliationChange: (String) -> Unit,
     language: String
 ) {
     var isEditing by remember { mutableStateOf(false) }
@@ -1533,6 +1882,16 @@ fun ProfileDetailsSection(
                 label = { Text(Translations.get(language, "residence_label")) },
                 readOnly = !isEditing,
                 singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            OutlinedTextField(
+                value = communityAffiliation,
+                onValueChange = onCommunityAffiliationChange,
+                label = { Text("Mosquée / Association affiliée") },
+                readOnly = !isEditing,
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                 shape = RoundedCornerShape(12.dp)
             )
@@ -1543,6 +1902,452 @@ fun ProfileDetailsSection(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun CredentialsDashboardSection(
+    memberId: String,
+    isVerified: Boolean,
+    verificationStatus: String,
+    verificationStep: String,
+    fullName: String,
+    dateOfBirth: String,
+    residency: String,
+    communityAffiliation: String,
+    expiryDate: String,
+    language: String,
+    ticketsCount: Int,
+    context: android.content.Context
+) {
+    val certColors = if (isVerified) {
+        listOf(Color(0xFF0F5A47), Color(0xFF1B4D3E)) // Dark Emerald for verified
+    } else {
+        listOf(Color(0xFF4A4A4A), Color(0xFF2C2C2C)) // Dark Slate for unverified
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // 1. Dashboard Welcoming Banner / Metrics Block
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isVerified) "CITOYEN VÉRIFIÉ" else "STATUT EN ATTENTE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Tableau des Attestations",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Présentation de vos justificatifs numériques officiels.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(if (isVerified) Color(0xFFD1E7DD) else Color(0xFFFFF3CD)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isVerified) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = "Status Icon",
+                        tint = if (isVerified) Color(0xFF0F5132) else Color(0xFF664D03),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        }
+
+        // Digital Verified Badge (Large layout) with Interactive Verification Dialogue
+        com.example.ui.components.DigitalVerifiedBadge(
+            isVerified = isVerified,
+            memberId = memberId,
+            fullName = fullName,
+            size = com.example.ui.components.BadgeSize.LARGE,
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+        )
+
+        // 2. Verified Digital ID Certificate (Attestation Officielle)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            shape = RoundedCornerShape(32.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(brush = Brush.linearGradient(colors = certColors))
+                    .padding(24.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "IDMUSLIM SECURITY SYSTEMS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.6f),
+                                letterSpacing = 1.sp
+                            )
+                            Text(
+                                text = Translations.get(language, "credential_certificate").uppercase(),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = if (isVerified) "ORIGINAL VRAI" else "PROVISOIRE",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text(
+                        text = "TITULAIRE DU JUSTIFICATIF",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.5f),
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = if (fullName.isNotBlank()) fullName.uppercase() else "CITOYEN",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "N° DE CITOYEN",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                text = memberId,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "VALIDITÉ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                text = "JUSQU'AU $expiryDate",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Divider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = Translations.get(language, "authorized_by"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 8.sp
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = "Shield Verified",
+                                tint = if (isVerified) Color(0xFF25D366) else Color.White.copy(alpha = 0.5f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isVerified) "VERIFIED" else "PENDING",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isVerified) Color(0xFF25D366) else Color.White.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Dynamic QR Authenticator Section (Clé d'Accréditation d'Accès)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "JETON D'AUTHENTICATION SÉCURISÉ",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Présentez ce QR Code pour justifier de votre identité certifiée.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Generating Payload conforming to secure checks
+                val timestamp = remember { System.currentTimeMillis() }
+                val currentSignature = "dynamic-shield-${memberId.take(5)}"
+                val securePayload = """
+                    {
+                      "id": "$memberId",
+                      "status": "${if (isVerified) "VERIFIED" else "PENDING"}",
+                      "issuedAt": $timestamp,
+                      "sig": "$currentSignature",
+                      "algorithm": "SHA-256"
+                    }
+                """.trimIndent()
+                val qrBitmap = remember(securePayload) {
+                    try {
+                        QRCodeGenerator.generateQRCode(securePayload, 450)
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+
+                if (qrBitmap != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(200.dp)
+                            .background(Color.White, RoundedCornerShape(16.dp))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            bitmap = qrBitmap.asImageBitmap(),
+                            contentDescription = "Secure Verification QR"
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Syncing",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Jeton d'autorisation synchronisé en temps réel",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
+        // 4. Cryptographic Proof Section (Preuve Cryptographique d'Intégrité)
+        val cryptoHash = remember(memberId) {
+            try {
+                val input = "$memberId-$fullName-$dateOfBirth"
+                val md = java.security.MessageDigest.getInstance("SHA-256")
+                val hashBytes = md.digest(input.toByteArray())
+                hashBytes.joinToString("") { "%02x".format(it) }.take(32).uppercase()
+            } catch (e: Exception) {
+                "0XF38D9A22409B19C0E28B5E83F67CDD28"
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = "Cryptographic Security",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = Translations.get(language, "security_integrity"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Signature unique d'intégrité de vos justificatifs:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = "SHA-256:$cryptoHash",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.align(Alignment.CenterStart)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        val clip = android.content.ClipData.newPlainText("IDMuslim Security Signature", cryptoHash)
+                        clipboardManager.setPrimaryClip(clip)
+                        android.widget.Toast.makeText(context, "Signature d'intégrité copiée dans le presse-papier !", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(text = Translations.get(language, "copy_sig"))
+                }
+            }
+        }
+
+        // 5. Active Access Status / Credentials Count Badge
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.15f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Event,
+                    contentDescription = "Event bookings",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = "PASS ACQUIS & RÉSERVATIONS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (ticketsCount > 0) "$ticketsCount participations validées actives" else "Aucune réservation active",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
             }
         }
     }

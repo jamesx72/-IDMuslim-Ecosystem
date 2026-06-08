@@ -14,6 +14,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -77,11 +79,19 @@ fun IDMuslimApp() {
         factory = ViewModelProvider.AndroidViewModelFactory.getInstance(context.applicationContext as Application)
     )
 
-    Scaffold(
+    val darkThemePref by eventViewModel.darkTheme.collectAsState(initial = "system")
+    val useDarkTheme = when (darkThemePref) {
+        "dark" -> true
+        "light" -> false
+        else -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
+
+    com.example.ui.theme.IDMuslimTheme(darkTheme = useDarkTheme) {
+        Scaffold(
         bottomBar = {
             if (showBottomNav) {
                 NavigationBar(
-                    containerColor = androidx.compose.ui.graphics.Color.White,
+                    containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface,
                     contentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
                 ) {
                     bottomNavItems.forEach { screen ->
@@ -189,4 +199,5 @@ fun IDMuslimApp() {
             }
         }
     }
+}
 }

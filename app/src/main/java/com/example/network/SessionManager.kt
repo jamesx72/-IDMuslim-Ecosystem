@@ -18,10 +18,36 @@ class SessionManager(context: Context) {
         private const val KEY_PROFILE_FULL_NAME = "profile_full_name"
         private const val KEY_PROFILE_DOB = "profile_dob"
         private const val KEY_PROFILE_RESIDENCY = "profile_residency"
+        private const val KEY_PROFILE_COMMUNITY_AFFILIATION = "profile_community_affiliation"
+        private const val KEY_USER_EMAIL = "user_email"
+        private const val KEY_DARK_THEME = "dark_theme"
     }
 
     fun saveAuthToken(token: String) {
         prefs.edit().putString(KEY_AUTH_TOKEN, token).apply()
+        if (token.startsWith("demo_token_")) {
+            saveUserEmail(token.substringAfter("demo_token_"))
+        } else if (token.startsWith("google_demo_token_") && token != "google_demo_token_simulated") {
+            saveUserEmail(token.substringAfter("google_demo_token_"))
+        }
+    }
+
+    fun saveUserEmail(email: String) {
+        prefs.edit().putString(KEY_USER_EMAIL, email).apply()
+    }
+
+    fun getUserEmail(): String {
+        val email = prefs.getString(KEY_USER_EMAIL, null)
+        if (!email.isNullOrBlank()) return email
+        
+        val token = getAuthToken() ?: ""
+        if (token.startsWith("google_demo_token_") && token != "google_demo_token_simulated") {
+            return token.substringAfter("google_demo_token_")
+        }
+        if (token.startsWith("demo_token_")) {
+            return token.substringAfter("demo_token_")
+        }
+        return "ouattarajamesx@gmail.com"
     }
 
     fun getAuthToken(): String? {
@@ -106,8 +132,43 @@ class SessionManager(context: Context) {
     fun getProfileResidency(): String? {
         return prefs.getString(KEY_PROFILE_RESIDENCY, null)
     }
+
+    fun saveProfileCommunityAffiliation(community: String) {
+        prefs.edit().putString(KEY_PROFILE_COMMUNITY_AFFILIATION, community).apply()
+    }
+
+    fun getProfileCommunityAffiliation(): String? {
+        return prefs.getString(KEY_PROFILE_COMMUNITY_AFFILIATION, null)
+    }
     
     fun logout() {
         prefs.edit().clear().apply()
+    }
+
+    fun saveLocalCredential(email: String, word: String, fullName: String) {
+        val normalizedEmail = email.trim().lowercase()
+        prefs.edit()
+            .putString("LOCAL_PWD_$normalizedEmail", word)
+            .putString("LOCAL_NAME_$normalizedEmail", fullName)
+            .apply()
+    }
+
+    fun verifyLocalCredential(email: String, word: String): Boolean {
+        val normalizedEmail = email.trim().lowercase()
+        val stored = prefs.getString("LOCAL_PWD_$normalizedEmail", null)
+        return stored != null && stored == word
+    }
+
+    fun getLocalUserFullName(email: String): String? {
+        val normalizedEmail = email.trim().lowercase()
+        return prefs.getString("LOCAL_NAME_$normalizedEmail", null)
+    }
+
+    fun saveDarkTheme(theme: String) {
+        prefs.edit().putString(KEY_DARK_THEME, theme).apply()
+    }
+
+    fun getDarkTheme(): String {
+        return prefs.getString(KEY_DARK_THEME, "system") ?: "system"
     }
 }

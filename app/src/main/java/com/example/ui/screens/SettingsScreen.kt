@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -81,6 +82,51 @@ fun SettingsScreen(
                 }
             }
 
+            // Theme Section
+            Text(
+                text = "Thème de l'application",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            val currentTheme by viewModel.darkTheme.collectAsState()
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp)) {
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text("Choix du Thème", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        ThemeOption(
+                            label = "Clair",
+                            selected = currentTheme == "light",
+                            onClick = { viewModel.updateDarkTheme("light") }
+                        )
+                        ThemeOption(
+                            label = "Sombre",
+                            selected = currentTheme == "dark",
+                            onClick = { viewModel.updateDarkTheme("dark") }
+                        )
+                        ThemeOption(
+                            label = "Système",
+                            selected = currentTheme == "system",
+                            onClick = { viewModel.updateDarkTheme("system") }
+                        )
+                    }
+                }
+            }
+
             // Language Section
             Text(
                 text = "Langue",
@@ -130,6 +176,17 @@ fun SettingsScreen(
 
 @Composable
 fun LanguageOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick
+        )
+        Text(text = label, modifier = Modifier.padding(start = 4.dp))
+    }
+}
+
+@Composable
+fun ThemeOption(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         RadioButton(
             selected = selected,
