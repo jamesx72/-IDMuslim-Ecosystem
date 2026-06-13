@@ -16,6 +16,12 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+import android.net.Uri
+import android.content.Context
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
+
 class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: EventRepository
     private val activityLogDao: com.example.data.ActivityLogDao
@@ -54,6 +60,35 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _verificationStep = MutableStateFlow("")
     val verificationStep: StateFlow<String> = _verificationStep.asStateFlow()
 
+    private val _usersList = MutableStateFlow<List<com.example.data.UserDto>>(emptyList())
+    val usersList: StateFlow<List<com.example.data.UserDto>> = _usersList.asStateFlow()
+
+    fun loadAllUsers() {
+        FirebaseFirestore.getInstance().collection("users")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null) return@addSnapshotListener
+                val members = snapshot.documents.map { doc ->
+                    val fullName = doc.getString("fullName") ?: "Unknown User"
+                    val isVerified = doc.getString("verificationStatus") == "VERIFIED"
+                    com.example.data.UserDto(
+                        uid = doc.id,
+                        fullName = fullName,
+                        isVerified = isVerified,
+                        dob = doc.getString("dob") ?: "",
+                        residency = doc.getString("residency") ?: "",
+                        community = doc.getString("community") ?: ""
+                    )
+                }
+                _usersList.value = members
+            }
+    }
+
+    fun toggleUserVerification(uid: String, currentStatus: Boolean) {
+        val newStatus = if (currentStatus) "UNVERIFIED" else "VERIFIED"
+        FirebaseFirestore.getInstance().collection("users").document(uid)
+            .set(hashMapOf("verificationStatus" to newStatus), com.google.firebase.firestore.SetOptions.merge())
+    }
+
     private val _profilePhotoBase64 = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfilePhotoBase64())
     val profilePhotoBase64: StateFlow<String?> = _profilePhotoBase64.asStateFlow()
 
@@ -68,6 +103,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _darkTheme = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getDarkTheme())
     val darkTheme: StateFlow<String> = _darkTheme.asStateFlow()
+
+    private val _privacyMode = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrivacyMode())
+    val privacyMode: StateFlow<Boolean> = _privacyMode.asStateFlow()
 
     private val _profileFullName = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileFullName())
     val profileFullName: StateFlow<String?> = _profileFullName.asStateFlow()
@@ -104,6 +142,71 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun verifyIdentity(success: Boolean = true) {
         val status = if (success) "VERIFIED" else "UNVERIFIED"
         setVerificationStatus(status)
+    }
+
+    fun invalidateVerification() {
+        setVerificationStatus("UNVERIFIED")
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        viewModelScope.launch {
+            try {
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .update("verificationStatus", "UNVERIFIED")
+            } catch (e: Exception) {
+                // Document might not exist yet, set it instead
+                val data = hashMapOf("verificationStatus" to "UNVERIFIED")
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .set(data, com.google.firebase.firestore.SetOptions.merge())
+            }
+        }
+    }
+
+    fun syncVerificationStatusFromFirestore() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    println("Listen failed: $e")
+                    return@addSnapshotListener
+                }
+                if (snapshot != null && snapshot.exists()) {
+                    val status = snapshot.getString("verificationStatus") ?: "UNVERIFIED"
+                    if (_verificationStatus.value != status) {
+                        setVerificationStatus(status)
+                    }
+                }
+            }
+    }
+
+    fun uploadDocumentForVerification(uri: Uri, context: Context) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        viewModelScope.launch {
+            setVerificationStatus("PENDING")
+            _verificationStep.value = "Téléchargement du document en cours..."
+            logActivity("INFO", "Dépôt de document d'identité pour vérification")
+            
+            try {
+                val storageRef = FirebaseStorage.getInstance().reference.child("verification_docs/${user.uid}/${System.currentTimeMillis()}.jpg")
+                val uploadTask = storageRef.putFile(uri)
+                uploadTask.addOnSuccessListener {
+                    storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
+                        val data = hashMapOf(
+                            "verificationStatus" to "PENDING",
+                            "documentUrl" to downloadUri.toString(),
+                            "updatedAt" to System.currentTimeMillis()
+                        )
+                        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                            .set(data, com.google.firebase.firestore.SetOptions.merge())
+                        _verificationStep.value = "Document envoyé. En attente de validation..."
+                    }
+                }.addOnFailureListener {
+                    setVerificationStatus("UNVERIFIED")
+                    _verificationStep.value = "Échec du téléchargement."
+                }
+            } catch (e: Exception) {
+                setVerificationStatus("UNVERIFIED")
+                _verificationStep.value = "Erreur."
+            }
+        }
     }
 
     fun startMockVerification() {
@@ -150,6 +253,11 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         _darkTheme.value = theme
     }
 
+    fun updatePrivacyMode(enabled: Boolean) {
+        com.example.network.ApiClient.getSessionManager().savePrivacyMode(enabled)
+        _privacyMode.value = enabled
+    }
+
     fun updateProfileFullName(fullName: String) {
         com.example.network.ApiClient.getSessionManager().saveProfileFullName(fullName)
         _profileFullName.value = fullName
@@ -168,6 +276,39 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun updateProfileCommunityAffiliation(community: String) {
         com.example.network.ApiClient.getSessionManager().saveProfileCommunityAffiliation(community)
         _profileCommunityAffiliation.value = community
+    }
+
+    private val _familyMembers = MutableStateFlow<List<com.example.data.FamilyMember>>(emptyList())
+    val familyMembers: StateFlow<List<com.example.data.FamilyMember>> = _familyMembers.asStateFlow()
+
+    fun loadFamilyMembers() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("familyMembers")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null) return@addSnapshotListener
+                val members = snapshot.documents.mapNotNull { it.toObject(com.example.data.FamilyMember::class.java) }
+                _familyMembers.value = members
+            }
+    }
+
+    fun addFamilyMember(fullName: String, dateOfBirth: String, relation: String) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        val ref = FirebaseFirestore.getInstance().collection("users").document(user.uid).collection("familyMembers").document()
+        val member = com.example.data.FamilyMember(
+            id = ref.id,
+            fullName = fullName,
+            dateOfBirth = dateOfBirth,
+            relation = relation
+        )
+        ref.set(member)
+        logActivity("INFO", "Added family member: $fullName")
+    }
+
+    fun removeFamilyMember(memberId: String) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("familyMembers").document(memberId).delete()
     }
 
     val allEvents: StateFlow<List<EventEntity>> = repository.allEvents.stateIn(

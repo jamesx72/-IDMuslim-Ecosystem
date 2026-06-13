@@ -25,6 +25,11 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Nfc
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +45,7 @@ import com.example.data.EventEntity
 import com.example.data.TicketEntity
 import com.example.ui.viewmodels.EventViewModel
 import com.example.utils.QRCodeGenerator
+import com.example.ui.components.IslamicDateHeader
 
 object Translations {
     fun get(lang: String, key: String): String {
@@ -70,6 +76,7 @@ object Translations {
                 "logout" to "Déconnexion",
                 "tab_id_card" to "Carte Identité",
                 "tab_dashboard" to "Justificatifs",
+                "tab_history" to "Historique",
                 "credential_certificate" to "Attestation d'Identité Véritable",
                 "verification_level" to "Niveau de Vérification",
                 "cryptographic_proof" to "Preuve Sécurisée",
@@ -105,6 +112,7 @@ object Translations {
                 "logout" to "Logout",
                 "tab_id_card" to "ID Card",
                 "tab_dashboard" to "Credentials",
+                "tab_history" to "History",
                 "credential_certificate" to "Verified Identity Credential",
                 "verification_level" to "Verification Level",
                 "cryptographic_proof" to "Secure Proof",
@@ -140,6 +148,7 @@ object Translations {
                 "logout" to "تسجيل خروج",
                 "tab_id_card" to "بطاقة الهوية",
                 "tab_dashboard" to "الوثائق",
+                "tab_history" to "السجل",
                 "credential_certificate" to "وثيقة الهوية الموثقة",
                 "verification_level" to "مستوى التوثيق",
                 "cryptographic_proof" to "إثبات آمن",
@@ -159,7 +168,8 @@ object Translations {
 fun ProfileScreen(
     viewModel: EventViewModel,
     onLogout: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToEditProfile: () -> Unit = {}
 ) {
     val firebaseUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
     val memberId = remember(firebaseUser) {
@@ -199,7 +209,9 @@ fun ProfileScreen(
     val profilePhoto by viewModel.profilePhotoBase64.collectAsState()
     val cardTheme by viewModel.cardTheme.collectAsState()
     val language by viewModel.language.collectAsState()
+    val privacyMode by viewModel.privacyMode.collectAsState()
     val activityLogs by viewModel.activityLogs.collectAsState()
+    val familyMembers by viewModel.familyMembers.collectAsState()
 
     var showVerificationDialog by remember { mutableStateOf(false) }
     var showThemeMenu by remember { mutableStateOf(false) }
@@ -222,6 +234,8 @@ fun ProfileScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     
     LaunchedEffect(Unit) {
+        viewModel.syncVerificationStatusFromFirestore()
+        viewModel.loadFamilyMembers()
         isAuthenticated = com.example.utils.BiometricHelper.authenticate(context)
         if (isAuthenticated) {
             viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
@@ -365,6 +379,14 @@ fun ProfileScreen(
         }
     }
 
+    val documentUploadLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            viewModel.uploadDocumentForVerification(uri, context)
+        }
+    }
+
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -422,7 +444,7 @@ fun ProfileScreen(
                             enabled = false
                         )
                         DropdownMenuItem(
-                            text = { Text("Paramètres") },
+                            text = { Text(Translations.get(language, "settings")) },
                             onClick = {
                                 showProfileMenu = false
                                 onNavigateToSettings()
@@ -448,6 +470,14 @@ fun ProfileScreen(
                 .padding(innerPadding),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
+            // Interactive Islamic and Gregorian Date Banner
+            item {
+                IslamicDateHeader(
+                    language = language,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp)
+                )
+            }
+
             // Elegant Visual Segmented Control for Tab Selection
             item {
                 Row(
@@ -461,7 +491,9 @@ fun ProfileScreen(
                 ) {
                     val tabOptions = listOf(
                         0 to Translations.get(language, "tab_id_card"),
-                        1 to Translations.get(language, "tab_dashboard")
+                        1 to Translations.get(language, "tab_dashboard"),
+                        2 to Translations.get(language, "tab_history"),
+                        3 to Translations.get(language, "tab_family")
                     )
                     tabOptions.forEach { (index, title) ->
                         val isSelected = selectedTab == index
@@ -502,7 +534,7 @@ fun ProfileScreen(
             if (selectedTab == 0) {
                 item {
                     if (isAuthenticated) {
-                        DigitalCardSection(
+                        com.example.ui.components.DigitalIdCard(
                             memberId = memberId,
                             isVerified = isVerified,
                             verificationStatus = verificationStatus,
@@ -514,8 +546,84 @@ fun ProfileScreen(
                             residency = profileResidency,
                             communityAffiliation = profileCommunityAffiliation,
                             expiryDate = expiryDate,
-                            language = language
+                            language = language,
+                            privacyMode = privacyMode
                         )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val passFile = com.example.utils.PassGenerator.generatePkPass(
+                                            context = context,
+                                            fullName = profileFullName,
+                                            memberId = memberId,
+                                            dateOfBirth = profileDateOfBirth,
+                                            verificationStatus = verificationStatus
+                                        )
+                                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            passFile
+                                        )
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                            setDataAndType(uri, "application/vnd.apple.pkpass")
+                                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        if (intent.resolveActivity(context.packageManager) != null) {
+                                            context.startActivity(intent)
+                                            android.widget.Toast.makeText(context, Translations.get(language, "wallet_export_success"), android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            // Fallback to sharing the file
+                                            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                                type = "application/vnd.apple.pkpass"
+                                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(android.content.Intent.createChooser(shareIntent, Translations.get(language, "add_to_wallet")))
+                                        }
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, Translations.get(language, "wallet_export_error"), android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(Translations.get(language, "add_to_wallet"), fontSize = 12.sp)
+                            }
+                            
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val format = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+                                        val date = format.parse(expiryDate) ?: java.util.Date()
+                                        val cal = java.util.Calendar.getInstance()
+                                        cal.time = date
+                                        cal.set(java.util.Calendar.HOUR_OF_DAY, 9)
+                                        cal.set(java.util.Calendar.MINUTE, 0)
+                                        
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_INSERT)
+                                            .setData(android.provider.CalendarContract.Events.CONTENT_URI)
+                                            .putExtra(android.provider.CalendarContract.Events.TITLE, Translations.get(language, "calendar_event_title"))
+                                            .putExtra(android.provider.CalendarContract.Events.DESCRIPTION, Translations.get(language, "calendar_event_desc"))
+                                            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, cal.timeInMillis)
+                                            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, true)
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(imageVector = Icons.Default.Event, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(Translations.get(language, "add_to_calendar"), fontSize = 12.sp)
+                            }
+                        }
                     } else {
                         val coroutineScope = rememberCoroutineScope()
                         Card(
@@ -545,9 +653,9 @@ fun ProfileScreen(
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text("Digital ID Locked", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(Translations.get(language, "credentials_locked"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("Tap to authenticate with biometrics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(Translations.get(language, "tap_authenticate"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -569,7 +677,7 @@ fun ProfileScreen(
                                 onDismissRequest = { showPhotoMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Appareil Photo") },
+                                    text = { Text(Translations.get(language, "camera")) },
                                     onClick = {
                                         showPhotoMenu = false
                                         if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -580,7 +688,7 @@ fun ProfileScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Galerie") },
+                                    text = { Text(Translations.get(language, "gallery")) },
                                     onClick = {
                                         showPhotoMenu = false
                                         galleryLauncher.launch("image/*")
@@ -597,15 +705,15 @@ fun ProfileScreen(
                                 onDismissRequest = { showThemeMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Émeraude (Défaut)") },
+                                    text = { Text(Translations.get(language, "theme_emerald")) },
                                     onClick = { viewModel.updateCardTheme(0); showThemeMenu = false }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Océan") },
+                                    text = { Text(Translations.get(language, "theme_ocean")) },
                                     onClick = { viewModel.updateCardTheme(1); showThemeMenu = false }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Rubis") },
+                                    text = { Text(Translations.get(language, "theme_ruby")) },
                                     onClick = { viewModel.updateCardTheme(2); showThemeMenu = false }
                                 )
                             }
@@ -634,39 +742,24 @@ fun ProfileScreen(
                         dateOfBirth = profileDateOfBirth,
                         residency = profileResidency,
                         communityAffiliation = profileCommunityAffiliation,
-                        onFullNameChange = { 
-                            profileFullName = it
-                            viewModel.updateProfileFullName(it) 
-                        },
-                        onDateOfBirthChange = { 
-                            profileDateOfBirth = it
-                            viewModel.updateProfileDob(it) 
-                        },
-                        onResidencyChange = { 
-                            profileResidency = it
-                            viewModel.updateProfileResidency(it) 
-                        },
-                        onCommunityAffiliationChange = {
-                            profileCommunityAffiliation = it
-                            viewModel.updateProfileCommunityAffiliation(it)
-                        },
+                        onEditClick = onNavigateToEditProfile,
                         language = language
                     )
                 }
                 
                 if (verificationStatus.uppercase() == "PENDING") {
                     item {
-                        VerificationPendingPrompt(step = verificationStep)
+                        VerificationPendingPrompt(step = verificationStep, language = language)
                     }
                 } else if (verificationStatus.uppercase() == "UNVERIFIED" || (!isVerified && verificationStatus.uppercase() != "VERIFIED")) {
                     item {
-                        VerifyIdentityPrompt(onClick = { showVerificationDialog = true })
+                        VerifyIdentityPrompt(language = language, onClick = { showVerificationDialog = true })
                     }
                 }
 
                 if (isAuthenticated) {
                     item {
-                        ProfileQrSection(memberId = memberId, isVerified = isVerified)
+                        ProfileQrSection(memberId = memberId, isVerified = isVerified, verificationStatus = verificationStatus, language = language)
                     }
                 }
 
@@ -696,39 +789,14 @@ fun ProfileScreen(
                             TicketHistoryCard(
                                 ticket = ticket,
                                 event = event,
+                                language = language,
                                 onCancel = { viewModel.cancelTicket(ticket) }
                             )
                         }
                     }
                 }
 
-                if (isAuthenticated) {
-                    item {
-                        Divider(modifier = Modifier.padding(vertical = 16.dp))
-                        Text(
-                            text = "Journal d'Activité Sécurisé (Mémorial)",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                        )
-                    }
 
-                    if (activityLogs.isEmpty()) {
-                        item {
-                            Text(
-                                text = "Aucune activité enregistrée.",
-                                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 16.dp),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                            )
-                        }
-                    } else {
-                        items(activityLogs) { log ->
-                            ActivityLogCard(log)
-                        }
-                    }
-                }
             } else if (selectedTab == 1) {
                 // Verified Credentials Dashboard Tab content
                 item {
@@ -745,7 +813,8 @@ fun ProfileScreen(
                             expiryDate = expiryDate,
                             language = language,
                             ticketsCount = tickets.size,
-                            context = context
+                            context = context,
+                            onDocumentUpload = { documentUploadLauncher.launch("image/*") }
                         )
                     } else {
                         val coroutineScope = rememberCoroutineScope()
@@ -776,10 +845,77 @@ fun ProfileScreen(
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text("Credentials Locked", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(Translations.get(language, "credentials_locked"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("Tap to authenticate with biometrics", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(Translations.get(language, "tap_authenticate"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                        }
+                    }
+                }
+            } else if (selectedTab == 2) {
+                if (isAuthenticated) {
+                    item {
+                        Text(
+                            text = Translations.get(language, "secure_activity_log"),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                        )
+                    }
+                    if (activityLogs.isEmpty()) {
+                        item {
+                            Text(
+                                text = "Aucune activité enregistrée.",
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                            )
+                        }
+                    } else {
+                        items(activityLogs) { log ->
+                            ActivityLogCard(log)
+                        }
+                    }
+                } else {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().height(300.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                Translations.get(language, "auth_required_history"),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                }
+            } else if (selectedTab == 3) {
+                if (isAuthenticated) {
+                    item {
+                        FamilyMembersSection(
+                            familyMembers = familyMembers,
+                            language = language,
+                            onAddMember = { name, dob, rel ->
+                                viewModel.addFamilyMember(name, dob, rel)
+                            },
+                            onRemoveMember = { id ->
+                                viewModel.removeFamilyMember(id)
+                            }
+                        )
+                    }
+                } else {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().height(300.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                Translations.get(language, "auth_required_history"),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                            )
                         }
                     }
                 }
@@ -789,6 +925,7 @@ fun ProfileScreen(
 
     if (showVerificationDialog) {
         VerificationWorkflowDialog(
+            language = language,
             onDismiss = { showVerificationDialog = false },
             onVerified = {
                 viewModel.startMockVerification()
@@ -811,7 +948,8 @@ fun DigitalCardSection(
     residency: String,
     communityAffiliation: String,
     expiryDate: String,
-    language: String
+    language: String,
+    privacyMode: Boolean = false
 ) {
     val themeColors = when (cardTheme) {
         1 -> listOf(Color(0xFF003366), Color(0xFF001133)) // Ocean
@@ -834,6 +972,13 @@ fun DigitalCardSection(
                 .background(
                     brush = Brush.linearGradient(
                         colors = themeColors
+                    )
+                )
+                .background(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.15f), Color.Transparent),
+                        center = androidx.compose.ui.geometry.Offset(0f, 0f),
+                        radius = 1000f
                     )
                 )
         ) {
@@ -860,7 +1005,7 @@ fun DigitalCardSection(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
+                                text = if (privacyMode) Translations.get(language, "hidden_field") else if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
@@ -876,7 +1021,7 @@ fun DigitalCardSection(
                             }
                         }
                     }
-                    if (profilePhotoBase64 != null) {
+                    if (profilePhotoBase64 != null && !privacyMode) {
                         var decodedBitmap: Bitmap? = null
                         try {
                             val decodedString = android.util.Base64.decode(profilePhotoBase64, android.util.Base64.DEFAULT)
@@ -922,7 +1067,7 @@ fun DigitalCardSection(
                                     fontSize = 8.sp
                                 )
                                 Text(
-                                    text = if (dateOfBirth.isNotBlank()) dateOfBirth else "--/--/----",
+                                    text = if (privacyMode) Translations.get(language, "hidden_field") else if (dateOfBirth.isNotBlank()) dateOfBirth else "--/--/----",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
                                     color = Color.White,
@@ -939,7 +1084,7 @@ fun DigitalCardSection(
                                     fontSize = 8.sp
                                 )
                                 Text(
-                                    text = if (residency.isNotBlank()) residency else Translations.get(language, "not_specified"),
+                                    text = if (privacyMode) Translations.get(language, "hidden_field") else if (residency.isNotBlank()) residency else Translations.get(language, "not_specified"),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
                                     color = Color.White,
@@ -995,7 +1140,7 @@ fun DigitalCardSection(
                                     fontSize = 8.sp
                                 )
                                 Text(
-                                    text = if (communityAffiliation.isNotBlank()) communityAffiliation else "--",
+                                    text = if (privacyMode) Translations.get(language, "hidden_field") else if (communityAffiliation.isNotBlank()) communityAffiliation else "--",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
                                     color = Color.White,
@@ -1040,7 +1185,7 @@ fun DigitalCardSection(
 }
 
 @Composable
-fun ProfileQrSection(memberId: String, isVerified: Boolean) {
+fun ProfileQrSection(memberId: String, isVerified: Boolean, verificationStatus: String, language: String) {
     var isDynamicMode by remember { mutableStateOf(true) }
     var secondsLeft by remember { mutableStateOf(30) }
     var securePayload by remember { mutableStateOf("") }
@@ -1050,7 +1195,7 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
 
     fun generateNewToken() {
         val timestamp = System.currentTimeMillis() / 1000
-        val payloadRaw = "$memberId-${if (isVerified) "VERIFIED_PREMIUM" else "NOT_VERIFIED"}-$timestamp"
+        val payloadRaw = "$memberId-${verificationStatus.ifEmpty { "UNVERIFIED" }}-$timestamp"
         currentSignature = try {
             val bytes = java.security.MessageDigest.getInstance("SHA-256").digest(payloadRaw.toByteArray())
             bytes.joinToString("") { "%02x".format(it) }.take(24)
@@ -1061,7 +1206,7 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
         securePayload = """
             {
               "id": "$memberId",
-              "status": "${if (isVerified) "VERIFIED" else "PENDING"}",
+              "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
               "issuedAt": $timestamp,
               "sig": "$currentSignature",
               "algorithm": "SHA-256"
@@ -1165,7 +1310,7 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier.height(36.dp)
                 ) {
-                    Text("Code Dynamique", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(Translations.get(language, "dynamic_code"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
                 
                 Button(
@@ -1178,7 +1323,7 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier.height(36.dp)
                 ) {
-                    Text("Code Statique", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(Translations.get(language, "static_code"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             
@@ -1235,14 +1380,14 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean) {
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Info,
+                    imageVector = Icons.Default.Nfc,
                     contentDescription = "NFC Enabled",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "NFC Tap Ready",
+                    text = Translations.get(language, "nfc_tap_ready"),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -1357,7 +1502,11 @@ fun ActivityLogCard(log: com.example.data.ActivityLogEntity) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (log.actionType == "NFC_VERIFIED") Icons.Default.Info else Icons.Default.Security,
+                    imageVector = when (log.actionType) {
+                        "NFC_VERIFIED" -> Icons.Default.Info
+                        "PROFILE_UPDATE" -> Icons.Default.Edit
+                        else -> Icons.Default.Security
+                    },
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
@@ -1390,7 +1539,7 @@ fun ActivityLogCard(log: com.example.data.ActivityLogEntity) {
 }
 
 @Composable
-fun TicketHistoryCard(ticket: TicketEntity, event: EventEntity, onCancel: () -> Unit) {
+fun TicketHistoryCard(ticket: TicketEntity, event: EventEntity, language: String, onCancel: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
     
@@ -1477,7 +1626,7 @@ fun TicketHistoryCard(ticket: TicketEntity, event: EventEntity, onCancel: () -> 
                 }
                 if (ticket.status == "Valid") {
                     TextButton(onClick = onCancel) {
-                        Text("Annuler", color = MaterialTheme.colorScheme.error)
+                        Text(Translations.get(language, "cancel"), color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -1518,7 +1667,7 @@ fun TicketHistoryCard(ticket: TicketEntity, event: EventEntity, onCancel: () -> 
 }
 
 @Composable
-fun VerificationPendingPrompt(step: String) {
+fun VerificationPendingPrompt(step: String, language: String) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1537,7 +1686,7 @@ fun VerificationPendingPrompt(step: String) {
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Vérification en cours",
+                    text = Translations.get(language, "verification_in_progress"),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onTertiaryContainer
@@ -1571,7 +1720,7 @@ fun VerificationPendingPrompt(step: String) {
 }
 
 @Composable
-fun VerifyIdentityPrompt(onClick: () -> Unit) {
+fun VerifyIdentityPrompt(language: String, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1613,7 +1762,7 @@ fun VerifyIdentityPrompt(onClick: () -> Unit) {
             ) {
                 Icon(imageVector = Icons.Default.Security, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Vérifier mon identité", fontWeight = FontWeight.Bold)
+                Text(Translations.get(language, "verify_identity"), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -1621,7 +1770,7 @@ fun VerifyIdentityPrompt(onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VerificationWorkflowDialog(onDismiss: () -> Unit, onVerified: () -> Unit) {
+fun VerificationWorkflowDialog(language: String, onDismiss: () -> Unit, onVerified: () -> Unit) {
     var step by remember { mutableIntStateOf(1) } // 1: Info, 2: ID upload, 3: Selfie, 4: Validating
 
     LaunchedEffect(step) {
@@ -1669,7 +1818,7 @@ fun VerificationWorkflowDialog(onDismiss: () -> Unit, onVerified: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(16.dp)
                     ) {
-                        Text("Commencer")
+                        Text(Translations.get(language, "start"))
                     }
                 }
                 2 -> {
@@ -1698,7 +1847,7 @@ fun VerificationWorkflowDialog(onDismiss: () -> Unit, onVerified: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(16.dp)
                     ) {
-                        Text("Simuler l'envoi de la pièce")
+                        Text(Translations.get(language, "simulate_doc"))
                     }
                 }
                 3 -> {
@@ -1733,7 +1882,7 @@ fun VerificationWorkflowDialog(onDismiss: () -> Unit, onVerified: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(16.dp)
                     ) {
-                        Text("Simuler le selfie vidéo")
+                        Text(Translations.get(language, "simulate_selfie"))
                     }
                 }
                 4 -> {
@@ -1821,14 +1970,9 @@ fun ProfileDetailsSection(
     dateOfBirth: String,
     residency: String,
     communityAffiliation: String,
-    onFullNameChange: (String) -> Unit,
-    onDateOfBirthChange: (String) -> Unit,
-    onResidencyChange: (String) -> Unit,
-    onCommunityAffiliationChange: (String) -> Unit,
+    onEditClick: () -> Unit,
     language: String
 ) {
-    var isEditing by remember { mutableStateOf(false) }
-    
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1850,17 +1994,17 @@ fun ProfileDetailsSection(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                TextButton(onClick = { isEditing = !isEditing }) {
-                    Text(text = if (isEditing) Translations.get(language, "save") else Translations.get(language, "edit"))
+                TextButton(onClick = onEditClick) {
+                    Text(text = Translations.get(language, "edit"))
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
             
             OutlinedTextField(
                 value = fullName,
-                onValueChange = onFullNameChange,
+                onValueChange = {},
                 label = { Text(Translations.get(language, "full_name")) },
-                readOnly = !isEditing,
+                readOnly = true,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 shape = RoundedCornerShape(12.dp)
@@ -1868,9 +2012,9 @@ fun ProfileDetailsSection(
             
             OutlinedTextField(
                 value = dateOfBirth,
-                onValueChange = onDateOfBirthChange,
+                onValueChange = {},
                 label = { Text(Translations.get(language, "dob_label")) },
-                readOnly = !isEditing,
+                readOnly = true,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 shape = RoundedCornerShape(12.dp)
@@ -1878,9 +2022,9 @@ fun ProfileDetailsSection(
             
             OutlinedTextField(
                 value = residency,
-                onValueChange = onResidencyChange,
+                onValueChange = {},
                 label = { Text(Translations.get(language, "residence_label")) },
-                readOnly = !isEditing,
+                readOnly = true,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 shape = RoundedCornerShape(12.dp)
@@ -1888,21 +2032,19 @@ fun ProfileDetailsSection(
 
             OutlinedTextField(
                 value = communityAffiliation,
-                onValueChange = onCommunityAffiliationChange,
-                label = { Text("Mosquée / Association affiliée") },
-                readOnly = !isEditing,
+                onValueChange = {},
+                label = { Text(Translations.get(language, "community_affiliation")) },
+                readOnly = true,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                 shape = RoundedCornerShape(12.dp)
             )
             
-            if (!isEditing) {
-                Text(
-                    text = Translations.get(language, "privacy_msg"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
+            Text(
+                text = Translations.get(language, "privacy_msg"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
         }
     }
 }
@@ -1920,7 +2062,8 @@ fun CredentialsDashboardSection(
     expiryDate: String,
     language: String,
     ticketsCount: Int,
-    context: android.content.Context
+    context: android.content.Context,
+    onDocumentUpload: () -> Unit = {}
 ) {
     val certColors = if (isVerified) {
         listOf(Color(0xFF0F5A47), Color(0xFF1B4D3E)) // Dark Emerald for verified
@@ -1998,6 +2141,32 @@ fun CredentialsDashboardSection(
             modifier = Modifier
                 .padding(horizontal = 20.dp, vertical = 6.dp)
         )
+
+        if (!isVerified) {
+            if (verificationStatus == "PENDING") {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(Translations.get(language, "verification_in_progress"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(verificationStep.ifBlank { Translations.get(language, "doc_under_review") }, style = MaterialTheme.typography.bodySmall)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onDocumentUpload,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(Translations.get(language, "submit_doc"))
+                }
+            }
+        }
 
         // 2. Verified Digital ID Certificate (Attestation Officielle)
         Card(
@@ -2124,7 +2293,7 @@ fun CredentialsDashboardSection(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isVerified) "VERIFIED" else "PENDING",
+                                text = if (isVerified) "VERIFIED" else verificationStatus.ifEmpty { "UNVERIFIED" },
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isVerified) Color(0xFF25D366) else Color.White.copy(alpha = 0.5f)
@@ -2172,7 +2341,7 @@ fun CredentialsDashboardSection(
                 val securePayload = """
                     {
                       "id": "$memberId",
-                      "status": "${if (isVerified) "VERIFIED" else "PENDING"}",
+                      "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
                       "issuedAt": $timestamp,
                       "sig": "$currentSignature",
                       "algorithm": "SHA-256"
@@ -2301,7 +2470,7 @@ fun CredentialsDashboardSection(
                         val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         val clip = android.content.ClipData.newPlainText("IDMuslim Security Signature", cryptoHash)
                         clipboardManager.setPrimaryClip(clip)
-                        android.widget.Toast.makeText(context, "Signature d'intégrité copiée dans le presse-papier !", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, Translations.get(language, "sig_copied"), android.widget.Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
@@ -2350,5 +2519,142 @@ fun CredentialsDashboardSection(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FamilyMembersSection(
+    familyMembers: List<com.example.data.FamilyMember>,
+    language: String,
+    onAddMember: (String, String, String) -> Unit,
+    onRemoveMember: (String) -> Unit
+) {
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = Translations.get(language, "family_members"),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Button(onClick = { showAddDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(Translations.get(language, "add_member"), fontSize = 12.sp)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (familyMembers.isEmpty()) {
+            Text(
+                text = "Aucun membre",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+        } else {
+            familyMembers.forEach { member ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = member.fullName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${Translations.get(language, "relation")} : ${Translations.get(language, member.relation.lowercase())}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { onRemoveMember(member.id) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        var name by remember { mutableStateOf("") }
+        var dob by remember { mutableStateOf("") }
+        var relation by remember { mutableStateOf("child") } // child, spouse, parent
+
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text(Translations.get(language, "add_member")) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text(Translations.get(language, "full_name")) },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = dob,
+                        onValueChange = { dob = it },
+                        label = { Text(Translations.get(language, "dob_label")) },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                    
+                    Text(Translations.get(language, "relation"), style = MaterialTheme.typography.labelMedium)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        listOf("child", "spouse", "parent").forEach { rel ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = relation == rel,
+                                    onClick = { relation = rel }
+                                )
+                                Text(Translations.get(language, rel), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (name.isNotBlank() && dob.isNotBlank()) {
+                            onAddMember(name, dob, relation)
+                            showAddDialog = false
+                        }
+                    }
+                ) {
+                    Text(Translations.get(language, "save"))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) {
+                    Text(Translations.get(language, "cancel"))
+                }
+            }
+        )
     }
 }

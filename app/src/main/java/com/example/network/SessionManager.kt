@@ -164,6 +164,14 @@ class SessionManager(context: Context) {
         return prefs.getString("LOCAL_NAME_$normalizedEmail", null)
     }
 
+    fun savePrivacyMode(enabled: Boolean) {
+        prefs.edit().putBoolean("KEY_PRIVACY_MODE", enabled).apply()
+    }
+
+    fun getPrivacyMode(): Boolean {
+        return prefs.getBoolean("KEY_PRIVACY_MODE", false)
+    }
+
     fun saveDarkTheme(theme: String) {
         prefs.edit().putString(KEY_DARK_THEME, theme).apply()
     }

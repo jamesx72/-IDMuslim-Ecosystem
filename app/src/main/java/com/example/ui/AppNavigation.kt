@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 
 import androidx.compose.material.icons.filled.Chat
 import com.example.ui.screens.QAScreen
+import com.example.ui.locales.Translations
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     object Splash : Screen("splash", "Splash", null)
@@ -54,6 +55,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Admin : Screen("admin", "Admin", Icons.Default.AdminPanelSettings)
     object Settings : Screen("settings", "Paramètres", Icons.Default.Settings)
     object CreateEvent : Screen("create_event", "Créer un événement", null)
+    object EditProfile : Screen("edit_profile", "Modifier le Profil", null)
     object EventDetail : Screen("event_detail/{eventId}", "Détails", null) {
         fun createRoute(eventId: Int) = "event_detail/$eventId"
     }
@@ -79,6 +81,7 @@ fun IDMuslimApp() {
         factory = ViewModelProvider.AndroidViewModelFactory.getInstance(context.applicationContext as Application)
     )
 
+    val language by eventViewModel.language.collectAsState()
     val darkThemePref by eventViewModel.darkTheme.collectAsState(initial = "system")
     val useDarkTheme = when (darkThemePref) {
         "dark" -> true
@@ -103,8 +106,8 @@ fun IDMuslimApp() {
                                 unselectedTextColor = androidx.compose.ui.graphics.Color.Gray,
                                 indicatorColor = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer
                             ),
-                            icon = { Icon(screen.icon!!, contentDescription = screen.title) },
-                            label = { Text(screen.title) },
+                            icon = { Icon(screen.icon!!, contentDescription = Translations.get(language, "nav_" + screen.route)) },
+                            label = { Text(Translations.get(language, "nav_" + screen.route)) },
                             selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
                             onClick = {
                                 navController.navigate(screen.route) {
@@ -139,7 +142,7 @@ fun IDMuslimApp() {
                 })
             }
             composable(Screen.Auth.route) {
-                AuthScreen(onAuthSuccess = {
+                AuthScreen(language = language, onAuthSuccess = {
                     navController.navigate(Screen.Profile.route) {
                         popUpTo(Screen.Auth.route) { inclusive = true }
                     }
@@ -155,7 +158,16 @@ fun IDMuslimApp() {
                     },
                     onNavigateToSettings = {
                         navController.navigate(Screen.Settings.route)
+                    },
+                    onNavigateToEditProfile = {
+                        navController.navigate(Screen.EditProfile.route)
                     }
+                )
+            }
+            composable(Screen.EditProfile.route) {
+                com.example.ui.screens.EditProfileScreen(
+                    viewModel = eventViewModel,
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
             composable(Screen.Scanner.route) {

@@ -42,12 +42,13 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
 import kotlin.random.Random
+import com.example.ui.locales.Translations
 
 import androidx.compose.ui.platform.testTag
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AuthScreen(onAuthSuccess: () -> Unit) {
+fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
     var isSignUp by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
@@ -234,7 +235,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                 )
 
                 Text(
-                    text = if (isSignUp) "Créer votre identité numérique" else "Se connecter à votre identité",
+                    text = if (isSignUp) Translations.get(language, "auth_create_digital_id") else Translations.get(language, "auth_connect_digital_id"),
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = 0.85f),
                     textAlign = TextAlign.Center,
@@ -297,7 +298,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                         }
 
                         Text(
-                            text = if (isSignUp) "Inscription" else "Connexion",
+                            text = if (isSignUp) Translations.get(language, "auth_sign_up") else Translations.get(language, "auth_sign_in"),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -310,7 +311,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 OutlinedTextField(
                                     value = name,
                                     onValueChange = { name = it },
-                                    label = { Text("Nom complet") },
+                                    label = { Text(Translations.get(language, "full_name")) },
                                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -322,7 +323,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 )
                                 if (isNameError) {
                                     Text(
-                                        text = "Le nom ne peut pas être vide.",
+                                        text = Translations.get(language, "auth_name_empty_error"),
                                         color = MaterialTheme.colorScheme.error,
                                         style = MaterialTheme.typography.bodySmall,
                                         modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
@@ -335,7 +336,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                         OutlinedTextField(
                             value = email,
                             onValueChange = { email = it },
-                            label = { Text("Email") },
+                            label = { Text(Translations.get(language, "email")) },
                             leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -347,7 +348,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                         )
                         if (isEmailError) {
                             Text(
-                                text = "Veuillez entrer une adresse email valide.",
+                                text = Translations.get(language, "auth_email_invalid_error"),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier
@@ -362,7 +363,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                         OutlinedTextField(
                             value = password,
                             onValueChange = { password = it },
-                            label = { Text("Mot de passe") },
+                            label = { Text(Translations.get(language, "password")) },
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                             trailingIcon = {
                                 IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
@@ -383,7 +384,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                         )
                         if (isPasswordError) {
                             Text(
-                                text = "Le mot de passe doit contenir au moins 6 caractères.",
+                                text = Translations.get(language, "auth_password_length_error"),
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier
@@ -400,7 +401,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 OutlinedTextField(
                                     value = confirmPassword,
                                     onValueChange = { confirmPassword = it },
-                                    label = { Text("Confirmer le mot de passe") },
+                                    label = { Text(Translations.get(language, "confirm_password")) },
                                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                                     trailingIcon = {
                                         IconButton(onClick = { isConfirmPasswordVisible = !isConfirmPasswordVisible }) {
@@ -422,7 +423,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 )
                                 if (isConfirmPasswordError) {
                                     Text(
-                                        text = "Les mots de passe ne correspondent pas.",
+                                        text = Translations.get(language, "auth_passwords_dont_match_error"),
                                         color = MaterialTheme.colorScheme.error,
                                         style = MaterialTheme.typography.bodySmall,
                                         modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
@@ -536,7 +537,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 )
                             } else {
                                 Text(
-                                    text = if (isSignUp) "S'inscrire" else "Se connecter",
+                                    text = if (isSignUp) Translations.get(language, "auth_sign_up_btn") else Translations.get(language, "auth_sign_in_btn"),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp
                                 )
@@ -586,7 +587,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 }
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text(
-                                    text = if (isSignUp) "S'inscrire avec Google" else "Se connecter avec Google",
+                                    text = if (isSignUp) Translations.get(language, "auth_sign_up_google") else Translations.get(language, "auth_sign_in_google"),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -600,7 +601,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                         TextButton(
                             onClick = {
                                 ApiClient.getSessionManager().saveAuthToken("admin_test_token")
-                                successMessage = "Connecté en tant qu'administrateur de test."
+                                successMessage = Translations.get(language, "auth_admin_test_success")
                                 onAuthSuccess()
                             },
                             modifier = Modifier
@@ -608,7 +609,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 .testTag("admin_test_button")
                         ) {
                             Text(
-                                text = "Connexion Test Admin",
+                                text = Translations.get(language, "auth_test_admin_connection"),
                                 color = MaterialTheme.colorScheme.secondary,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -626,7 +627,7 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                                 .testTag("switch_auth_mode_button")
                         ) {
                             Text(
-                                text = if (isSignUp) "Déjà un compte ? Se connecter" else "Nouveau membre ? Créer un compte",
+                                text = if (isSignUp) Translations.get(language, "auth_already_have_account") else Translations.get(language, "auth_new_member_sign_up"),
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
                             )

@@ -88,9 +88,14 @@ fun VerificationStatusBadge(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = labelText.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        shadow = androidx.compose.ui.graphics.Shadow(
+                            color = contentColor.copy(alpha = 0.3f),
+                            blurRadius = 2f
+                        )
+                    ),
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.2.sp,
                     color = contentColor
                 )
             }

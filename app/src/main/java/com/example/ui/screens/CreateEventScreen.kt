@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.ui.viewmodels.EventViewModel
+import com.example.ui.locales.Translations
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,11 +30,12 @@ fun CreateEventScreen(
     var organizer by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var maxTickets by remember { mutableStateOf("") }
+    val language by viewModel.language.collectAsState()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Créer un Événement") },
+                title = { Text(Translations.get(language, "create_event_title")) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
@@ -57,14 +59,14 @@ fun CreateEventScreen(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Titre de l'événement") },
+                label = { Text(Translations.get(language, "event_title")) },
                 modifier = Modifier.fillMaxWidth()
             )
 
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Description") },
+                label = { Text(Translations.get(language, "description")) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3
             )
@@ -73,13 +75,13 @@ fun CreateEventScreen(
                 OutlinedTextField(
                     value = date,
                     onValueChange = { date = it },
-                    label = { Text("Date (ex: 2026-10-15)") },
+                    label = { Text(Translations.get(language, "date_example")) },
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
                     value = time,
                     onValueChange = { time = it },
-                    label = { Text("Heure (ex: 18:00)") },
+                    label = { Text(Translations.get(language, "time_example")) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -87,14 +89,14 @@ fun CreateEventScreen(
             OutlinedTextField(
                 value = location,
                 onValueChange = { location = it },
-                label = { Text("Lieu") },
+                label = { Text(Translations.get(language, "location")) },
                 modifier = Modifier.fillMaxWidth()
             )
             
             OutlinedTextField(
                 value = organizer,
                 onValueChange = { organizer = it },
-                label = { Text("Organisateur") },
+                label = { Text(Translations.get(language, "organizer")) },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -102,14 +104,14 @@ fun CreateEventScreen(
                 OutlinedTextField(
                     value = price,
                     onValueChange = { price = it },
-                    label = { Text("Prix du billet (€)") },
+                    label = { Text(Translations.get(language, "ticket_price")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
                     value = maxTickets,
                     onValueChange = { maxTickets = it },
-                    label = { Text("Nombre de places") },
+                    label = { Text(Translations.get(language, "num_places")) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f)
                 )
@@ -135,7 +137,7 @@ fun CreateEventScreen(
                 shape = RoundedCornerShape(25.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text("Publier l'événement", fontWeight = FontWeight.Bold)
+                Text(Translations.get(language, "publish_event"), fontWeight = FontWeight.Bold)
             }
         }
     }

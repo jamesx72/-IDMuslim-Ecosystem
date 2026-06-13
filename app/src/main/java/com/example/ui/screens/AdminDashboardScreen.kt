@@ -30,25 +30,16 @@ import com.patrykandpatrick.vico.compose.chart.Chart
 import com.patrykandpatrick.vico.compose.chart.column.columnChart
 import com.patrykandpatrick.vico.core.entry.entryModelOf
 
-data class Member(
-    val id: String,
-    val name: String,
-    val isVerified: Boolean
-)
-
-val mockMembers = listOf(
-    Member("IDM-A1B2C3D4", "Ahmed Youssef", true),
-    Member("IDM-99284410", "Fatima Zahra", false),
-    Member("IDM-XY78Z9W0", "Mohamed Ali", true),
-    Member("IDM-K8J2N4M1", "Aisha Rahman", false),
-    Member("IDM-66381902", "Omar Said", true),
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminDashboardScreen(viewModel: EventViewModel) {
     val events by viewModel.allEvents.collectAsState()
     val activityLogs by viewModel.activityLogs.collectAsState()
+    val usersList by viewModel.usersList.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.loadAllUsers()
+    }
 
     val chartEntryModel = remember(activityLogs) {
         val counts = mutableMapOf<Int, Int>()
@@ -78,10 +69,10 @@ fun AdminDashboardScreen(viewModel: EventViewModel) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("Tous") }
 
-    val filteredMembers = remember(searchQuery, selectedFilter) {
-        mockMembers.filter { member ->
-            val matchesQuery = member.name.contains(searchQuery, ignoreCase = true) ||
-                               member.id.contains(searchQuery, ignoreCase = true)
+    val filteredMembers = remember(searchQuery, selectedFilter, usersList) {
+        usersList.filter { member ->
+            val matchesQuery = member.fullName.contains(searchQuery, ignoreCase = true) ||
+                               member.uid.contains(searchQuery, ignoreCase = true)
             val matchesFilter = when (selectedFilter) {
                 "Vérifiés" -> member.isVerified
                 "Non Vérifiés" -> !member.isVerified
@@ -213,7 +204,9 @@ fun AdminDashboardScreen(viewModel: EventViewModel) {
             }
 
             items(filteredMembers) { member ->
-                MemberListItem(member)
+                MemberListItem(member) {
+                    viewModel.toggleUserVerification(member.uid, member.isVerified)
+                }
             }
             
             if (filteredMembers.isEmpty()) {
@@ -230,7 +223,7 @@ fun AdminDashboardScreen(viewModel: EventViewModel) {
 }
 
 @Composable
-fun MemberListItem(member: Member) {
+fun MemberListItem(member: com.example.data.UserDto, onToggle: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -246,15 +239,15 @@ fun MemberListItem(member: Member) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = member.name,
+                    text = member.fullName,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = member.id,
+                    text = member.uid,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )
@@ -265,6 +258,7 @@ fun MemberListItem(member: Member) {
                         if (member.isVerified) Color(0xFF34D399).copy(alpha = 0.2f) else Color(0xFFFBBF24).copy(alpha = 0.2f),
                         RoundedCornerShape(50)
                     )
+                    .clickable { onToggle() }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
