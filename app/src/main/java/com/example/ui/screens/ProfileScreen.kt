@@ -30,6 +30,12 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Help
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +47,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.testTag
 import com.example.data.EventEntity
 import com.example.data.TicketEntity
 import com.example.ui.viewmodels.EventViewModel
@@ -223,13 +230,68 @@ fun ProfileScreen(
     val cachedDob by viewModel.profileDob.collectAsState()
     val cachedResidency by viewModel.profileResidency.collectAsState()
     val cachedCommunityAffiliation by viewModel.profileCommunityAffiliation.collectAsState()
+    val cachedPassport by viewModel.profilePassportNumber.collectAsState()
+    val cachedLicense by viewModel.profileLicenseNumber.collectAsState()
+    val hasPaidForPdf by viewModel.hasPaidForPdf.collectAsState()
 
     var profileFullName by remember(cachedFullName, displayName) { mutableStateOf(cachedFullName ?: displayName) }
     var profileDateOfBirth by remember(cachedDob) { mutableStateOf(cachedDob ?: "") }
     var profileResidency by remember(cachedResidency) { mutableStateOf(cachedResidency ?: "") }
     var profileCommunityAffiliation by remember(cachedCommunityAffiliation) { mutableStateOf(cachedCommunityAffiliation ?: "") }
+    var profilePassport by remember(cachedPassport) { mutableStateOf(cachedPassport ?: "") }
+    var profileLicense by remember(cachedLicense) { mutableStateOf(cachedLicense ?: "") }
     var isAuthenticated by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
+    var showPaymentDialog by remember { mutableStateOf(false) }
+    var showIdReadyAlert by remember { mutableStateOf(false) }
+    var showNotificationsDialog by remember { mutableStateOf(false) }
+    var showFaqDialog by remember { mutableStateOf(false) }
+
+    val notifications = remember(verificationStatus, isVerified) {
+        val list = mutableListOf<Map<String, String>>()
+        if (isVerified) {
+            list.add(mapOf(
+                "title" to "Félicitations!",
+                "message" to "Votre identité a été vérifiée avec succès. Vous êtes maintenant membre Premium Émeraude.",
+                "time" to "À l'instant",
+                "type" to "success"
+            ))
+        } else {
+            list.add(mapOf(
+                "title" to "Action Requise",
+                "message" to "Veuillez terminer la vérification pour sécuriser votre compte IDMuslim.",
+                "time" to "Il y a 2h",
+                "type" to "warning"
+            ))
+        }
+        
+        list.add(mapOf(
+            "title" to "Evénement à venir",
+            "message" to "Le grand rassemblement de la communauté internationale approche.",
+            "time" to "Il y a 1 jour",
+            "type" to "info"
+        ))
+        
+        list.add(mapOf(
+            "title" to "Mise à jour Communauté",
+            "message" to "Plus de 500 nouveaux membres ont rejoint IDMuslim cette semaine dans toute la France.",
+            "time" to "Il y a 2 jours",
+            "type" to "info"
+        ))
+        list
+    }
+
+    LaunchedEffect(verificationStatus) {
+        if (verificationStatus.uppercase() == "VERIFIED") {
+            val dismissed = com.example.network.ApiClient.getSessionManager().isIdReadyAlertDismissed()
+            if (!dismissed) {
+                showIdReadyAlert = true
+            }
+        } else {
+            com.example.network.ApiClient.getSessionManager().saveIdReadyAlertDismissed(false)
+            showIdReadyAlert = false
+        }
+    }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     
@@ -421,8 +483,31 @@ fun ProfileScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
-                Box {
-                    Box(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { showNotificationsDialog = true }
+                    ) {
+                        Box {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Notifications",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            // Badge indicating unread notifications
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Red)
+                                    .align(Alignment.TopEnd)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box {
+                        Box(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
@@ -463,6 +548,16 @@ fun ProfileScreen(
                 }
             }
         }
+    },
+    floatingActionButton = {
+        FloatingActionButton(
+            onClick = { showFaqDialog = true },
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) {
+            Icon(Icons.Default.Help, contentDescription = "Aide FAQ")
+        }
+    }
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -492,7 +587,7 @@ fun ProfileScreen(
                     val tabOptions = listOf(
                         0 to Translations.get(language, "tab_id_card"),
                         1 to Translations.get(language, "tab_dashboard"),
-                        2 to Translations.get(language, "tab_history"),
+                        2 to Translations.get(language, "tab_community"),
                         3 to Translations.get(language, "tab_family")
                     )
                     tabOptions.forEach { (index, title) ->
@@ -513,7 +608,7 @@ fun ProfileScreen(
                                 horizontalArrangement = Arrangement.Center
                             ) {
                                 Icon(
-                                    imageVector = if (index == 0) Icons.Default.Security else Icons.Default.CheckCircle,
+                                    imageVector = if (index == 0) Icons.Default.Security else if (index == 2) Icons.Default.Public else Icons.Default.CheckCircle,
                                     contentDescription = null,
                                     tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(16.dp)
@@ -545,6 +640,8 @@ fun ProfileScreen(
                             dateOfBirth = profileDateOfBirth,
                             residency = profileResidency,
                             communityAffiliation = profileCommunityAffiliation,
+                            passportNumber = profilePassport,
+                            licenseNumber = profileLicense,
                             expiryDate = expiryDate,
                             language = language,
                             privacyMode = privacyMode
@@ -624,6 +721,33 @@ fun ProfileScreen(
                                 Text(Translations.get(language, "add_to_calendar"), fontSize = 12.sp)
                             }
                         }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        OutlinedButton(
+                            onClick = {
+                                if (hasPaidForPdf) {
+                                    com.example.utils.PdfGenerator.generatePdf(
+                                        context = context,
+                                        fullName = profileFullName,
+                                        dateOfBirth = profileDateOfBirth,
+                                        residency = profileResidency,
+                                        community = profileCommunityAffiliation,
+                                        passport = profilePassport,
+                                        license = profileLicense,
+                                        memberId = memberId
+                                    )
+                                } else {
+                                    showPaymentDialog = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Télécharger PDF (Premium)", fontSize = 14.sp)
+                        }
+
                     } else {
                         val coroutineScope = rememberCoroutineScope()
                         Card(
@@ -747,19 +871,29 @@ fun ProfileScreen(
                     )
                 }
                 
-                if (verificationStatus.uppercase() == "PENDING") {
+                if (!isVerified) {
                     item {
-                        VerificationPendingPrompt(step = verificationStep, language = language)
-                    }
-                } else if (verificationStatus.uppercase() == "UNVERIFIED" || (!isVerified && verificationStatus.uppercase() != "VERIFIED")) {
-                    item {
-                        VerifyIdentityPrompt(language = language, onClick = { showVerificationDialog = true })
+                        VerificationStatusDashboard(
+                            verificationStatus = verificationStatus,
+                            verificationStep = verificationStep,
+                            language = language,
+                            onStartVerification = { showVerificationDialog = true }
+                        )
                     }
                 }
 
                 if (isAuthenticated) {
                     item {
-                        ProfileQrSection(memberId = memberId, isVerified = isVerified, verificationStatus = verificationStatus, language = language)
+                        ProfileQrSection(
+                            memberId = memberId, 
+                            isVerified = isVerified, 
+                            verificationStatus = verificationStatus, 
+                            language = language,
+                            fullName = profileFullName,
+                            dateOfBirth = profileDateOfBirth,
+                            residency = profileResidency,
+                            communityAffiliation = profileCommunityAffiliation
+                        )
                     }
                 }
 
@@ -814,7 +948,8 @@ fun ProfileScreen(
                             language = language,
                             ticketsCount = tickets.size,
                             context = context,
-                            onDocumentUpload = { documentUploadLauncher.launch("image/*") }
+                            onDocumentUpload = { documentUploadLauncher.launch("image/*") },
+                            onStartVerification = { showVerificationDialog = true }
                         )
                     } else {
                         val coroutineScope = rememberCoroutineScope()
@@ -856,26 +991,35 @@ fun ProfileScreen(
                 if (isAuthenticated) {
                     item {
                         Text(
-                            text = Translations.get(language, "secure_activity_log"),
+                            text = Translations.get(language, "community_map_title"),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                         )
                     }
-                    if (activityLogs.isEmpty()) {
-                        item {
-                            Text(
-                                text = "Aucune activité enregistrée.",
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-                            )
+                    item {
+                        Text(
+                            text = Translations.get(language, "community_map_desc"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp)
+                        )
+                    }
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(400.dp)
+                                .padding(horizontal = 20.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
+                        ) {
+                            com.example.ui.components.GlobalCommunityMap()
                         }
-                    } else {
-                        items(activityLogs) { log ->
-                            ActivityLogCard(log)
-                        }
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
                 } else {
                     item {
@@ -931,6 +1075,43 @@ fun ProfileScreen(
                 viewModel.startMockVerification()
                 showVerificationDialog = false
             }
+        )
+    }
+
+    if (showIdReadyAlert) {
+        VerificationSuccessAlert(
+            show = showIdReadyAlert,
+            onDismiss = {
+                showIdReadyAlert = false
+                com.example.network.ApiClient.getSessionManager().saveIdReadyAlertDismissed(true)
+            },
+            onViewId = {
+                selectedTab = 0
+            }
+        )
+    }
+
+    if (showPaymentDialog) {
+        PaymentDialog(
+            onDismiss = { showPaymentDialog = false },
+            onPaymentSuccess = {
+                viewModel.setHasPaidForPdf(true)
+                showPaymentDialog = false
+                android.widget.Toast.makeText(context, "Paiement réussi ! Vous pouvez maintenant télécharger le PDF.", android.widget.Toast.LENGTH_LONG).show()
+            }
+        )
+    }
+
+    if (showFaqDialog) {
+        VerificationFaqDialog(
+            onDismiss = { showFaqDialog = false }
+        )
+    }
+
+    if (showNotificationsDialog) {
+        com.example.ui.components.NotificationsDialog(
+            notifications = notifications,
+            onDismiss = { showNotificationsDialog = false }
         )
     }
 }
@@ -1185,17 +1366,28 @@ fun DigitalCardSection(
 }
 
 @Composable
-fun ProfileQrSection(memberId: String, isVerified: Boolean, verificationStatus: String, language: String) {
+fun ProfileQrSection(
+    memberId: String, 
+    isVerified: Boolean, 
+    verificationStatus: String, 
+    language: String,
+    fullName: String,
+    dateOfBirth: String,
+    residency: String,
+    communityAffiliation: String
+) {
     var isDynamicMode by remember { mutableStateOf(true) }
     var secondsLeft by remember { mutableStateOf(30) }
     var securePayload by remember { mutableStateOf("") }
     var currentSignature by remember { mutableStateOf("") }
     var qrBitmapState by remember { mutableStateOf<Bitmap?>(null) }
     var showPayloadDetails by remember { mutableStateOf(false) }
+    var showTempLinkQrDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     fun generateNewToken() {
         val timestamp = System.currentTimeMillis() / 1000
-        val payloadRaw = "$memberId-${verificationStatus.ifEmpty { "UNVERIFIED" }}-$timestamp"
+        val payloadRaw = "$memberId-${verificationStatus.ifEmpty { "UNVERIFIED" }}-$fullName-$dateOfBirth-$residency-$communityAffiliation-$timestamp"
         currentSignature = try {
             val bytes = java.security.MessageDigest.getInstance("SHA-256").digest(payloadRaw.toByteArray())
             bytes.joinToString("") { "%02x".format(it) }.take(24)
@@ -1207,6 +1399,10 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean, verificationStatus: 
             {
               "id": "$memberId",
               "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
+              "name": "$fullName",
+              "dob": "$dateOfBirth",
+              "residency": "$residency",
+              "community": "$communityAffiliation",
               "issuedAt": $timestamp,
               "sig": "$currentSignature",
               "algorithm": "SHA-256"
@@ -1233,8 +1429,26 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean, verificationStatus: 
         }
     } else {
         LaunchedEffect(memberId, isVerified) {
-            securePayload = "idmuslim://identity/$memberId?verified=$isVerified"
-            currentSignature = "static-signed-pki"
+            val timestamp = System.currentTimeMillis() / 1000
+            val payloadRaw = "$memberId-${verificationStatus.ifEmpty { "UNVERIFIED" }}-$fullName-$dateOfBirth-$residency-$communityAffiliation"
+            currentSignature = try {
+                val bytes = java.security.MessageDigest.getInstance("SHA-256").digest(payloadRaw.toByteArray())
+                bytes.joinToString("") { "%02x".format(it) }.take(24)
+            } catch (e: Exception) {
+                "sig-failed-pki"
+            }
+            securePayload = """
+                {
+                  "id": "$memberId",
+                  "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
+                  "name": "$fullName",
+                  "dob": "$dateOfBirth",
+                  "residency": "$residency",
+                  "community": "$communityAffiliation",
+                  "sig": "$currentSignature",
+                  "mode": "static"
+                }
+            """.trimIndent()
             qrBitmapState = QRCodeGenerator.generateQRCode(securePayload, 512)
             com.example.nfc.ProfileApduService.activePayload = securePayload
         }
@@ -1422,7 +1636,49 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean, verificationStatus: 
             }
             
             Spacer(modifier = Modifier.height(16.dp))
-            Divider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
+            
+            Button(
+                onClick = {
+                    val shareUrl = "https://idmuslim.org/badge/${memberId}?token=${currentSignature}"
+                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_SUBJECT, Translations.get(language, "share_badge_subject"))
+                        putExtra(android.content.Intent.EXTRA_TEXT, String.format(Translations.get(language, "share_badge_text"), shareUrl))
+                    }
+                    context.startActivity(android.content.Intent.createChooser(shareIntent, Translations.get(language, "share_badge")))
+                },
+                modifier = Modifier.fillMaxWidth().testTag("share_badge_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = Translations.get(language, "share_badge"),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(Translations.get(language, "share_badge"))
+            }
+
+            Button(
+                onClick = { showTempLinkQrDialog = true },
+                modifier = Modifier.fillMaxWidth().testTag("temp_qr_badge_button"),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Link,
+                    contentDescription = Translations.get(language, "temp_qr_generate"),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(Translations.get(language, "temp_qr_generate"))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
             Spacer(modifier = Modifier.height(12.dp))
             
             Row(
@@ -1478,6 +1734,73 @@ fun ProfileQrSection(memberId: String, isVerified: Boolean, verificationStatus: 
                 }
             }
         }
+    }
+
+    if (showTempLinkQrDialog) {
+        AlertDialog(
+            onDismissRequest = { showTempLinkQrDialog = false },
+            title = {
+                Text(
+                    "Lien de Partage Temporaire",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Ce QR Code contient une URL temporaire valide pour une seule lecture. Laissez la personne le scanner pour vérifier rapidement votre identité.",
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    
+                    val tempLinkId = remember { java.util.UUID.randomUUID().toString().take(8) }
+                    val tempShareUrl = "https://idmuslim.org/temp/$tempLinkId?memberId=$memberId"
+                    
+                    val tempQrBitmap = remember(tempShareUrl) {
+                        try {
+                            QRCodeGenerator.generateQRCode(tempShareUrl, 400)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    
+                    if (tempQrBitmap != null) {
+                        Image(
+                            bitmap = tempQrBitmap.asImageBitmap(),
+                            contentDescription = "Temporary Share QR",
+                            modifier = Modifier
+                                .size(200.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White)
+                                .padding(8.dp)
+                        )
+                    } else {
+                        CircularProgressIndicator()
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = tempShareUrl,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showTempLinkQrDialog = false }) {
+                    Text("Fermer")
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(24.dp)
+        )
     }
 }
     
@@ -1637,7 +1960,7 @@ fun TicketHistoryCard(ticket: TicketEntity, event: EventEntity, language: String
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Divider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "Scannez pour valider le billet",
@@ -1771,12 +2094,66 @@ fun VerifyIdentityPrompt(language: String, onClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VerificationWorkflowDialog(language: String, onDismiss: () -> Unit, onVerified: () -> Unit) {
-    var step by remember { mutableIntStateOf(1) } // 1: Info, 2: ID upload, 3: Selfie, 4: Validating
-
+    var step by remember { mutableIntStateOf(1) } // 1: Welcome/Info, 2: Doc Details Form, 3: Doc Scan, 4: Selfie, 5: Summary & Consent, 6: Securing Process, 7: Success
+    
+    // Step 2 Form States
+    var docType by remember { mutableStateOf("Passport") } 
+    var docNumber by remember { mutableStateOf("") }
+    var issuingCountry by remember { mutableStateOf("France") }
+    
+    // Step 3 Scan States
+    var docPhotoCaptured by remember { mutableStateOf(false) }
+    var isDocScanning by remember { mutableStateOf(false) }
+    var docScanProgress by remember { mutableStateOf(0f) }
+    
+    // Step 4 Selfie States
+    var selfieCaptured by remember { mutableStateOf(false) }
+    var isSelfieScanning by remember { mutableStateOf(false) }
+    var selfieScanProgress by remember { mutableStateOf(0f) }
+    
+    // Step 5 Consent
+    var privacyConsentChecked by remember { mutableStateOf(false) }
+    
+    // Step 6 Security processing dynamic label
+    var processingLabel by remember { mutableStateOf("Initialisation de la connexion sécurisée...") }
+    
+    val coroutineScope = rememberCoroutineScope()
+    
     LaunchedEffect(step) {
-        if (step == 4) {
-            kotlinx.coroutines.delay(2000)
-            onVerified()
+        if (step == 6) {
+            processingLabel = "Chiffrement et transfert des pièces de sécurité..."
+            kotlinx.coroutines.delay(1200)
+            processingLabel = "Analyse biométrique faciale en cours..."
+            kotlinx.coroutines.delay(1200)
+            processingLabel = "Vérification des filigranes gouvernementaux..."
+            kotlinx.coroutines.delay(1100)
+            processingLabel = "Génération des preuves d'intégrité IDMuslim..."
+            kotlinx.coroutines.delay(1000)
+            step = 7
+        }
+    }
+
+    LaunchedEffect(isDocScanning) {
+        if (isDocScanning) {
+            docScanProgress = 0f
+            while (docScanProgress < 1f) {
+                kotlinx.coroutines.delay(150)
+                docScanProgress += 0.1f
+            }
+            docPhotoCaptured = true
+            isDocScanning = false
+        }
+    }
+
+    LaunchedEffect(isSelfieScanning) {
+        if (isSelfieScanning) {
+            selfieScanProgress = 0f
+            while (selfieScanProgress < 1f) {
+                kotlinx.coroutines.delay(150)
+                selfieScanProgress += 0.12f
+            }
+            selfieCaptured = true
+            isSelfieScanning = false
         }
     }
 
@@ -1787,122 +2164,641 @@ fun VerificationWorkflowDialog(language: String, onDismiss: () -> Unit, onVerifi
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp)
-                .padding(bottom = 24.dp),
+                .padding(horizontal = 24.dp)
+                .padding(top = 8.dp, bottom = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // STEP PROGRESS HEADER INDICATOR (only during input steps 1 to 5)
+            if (step <= 5) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 20.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    for (i in 1..5) {
+                        Box(
+                            modifier = Modifier
+                                .size(if (step == i) 12.dp else 8.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (step == i) MaterialTheme.colorScheme.primary 
+                                    else if (step > i) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                )
+                        )
+                        if (i < 5) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(20.dp)
+                                    .height(2.dp)
+                                    .background(
+                                        if (step > i) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                    }
+                }
+                
+                Text(
+                    text = "Étape $step sur 5",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
+
             when (step) {
                 1 -> {
+                    // Onboarding / Information
                     Icon(
                         imageVector = Icons.Default.Security,
                         contentDescription = null,
-                        modifier = Modifier.size(64.dp),
+                        modifier = Modifier.size(72.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Vérification d'Identité",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
+                        text = "Vérification d'Identité Numérique",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Protégez votre profil IDMuslim. Nous vérifions votre pièce gouvernementale (Carte Nationale d'Identité ou Passeport) de manière sécurisée et cryptée.",
+                        text = "Vérifiez votre profil de manière hautement sécurisée pour réclamer votre attestation d'identité et débloquer les services premium IDMuslim.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp)
                     )
+                    
                     Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // Highlighting advantages
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Données Cryptées en Local",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Vérification de niveau Émeraude",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
                     Button(
                         onClick = { step = 2 },
                         modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(16.dp)
                     ) {
-                        Text(Translations.get(language, "start"))
+                        Text("Commencer la vérification")
                     }
                 }
+                
                 2 -> {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    // Document Details Form
                     Text(
-                        text = "1. Prenez en photo votre pièce d'identité",
+                        text = "Sélectionnez votre pièce d'identité",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Document types options cards
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("Passport" to "Passeport", "ID Card" to "CNI", "License" to "Permis").forEach { (typeKey, label) ->
+                            val isSelected = docType == typeKey
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { docType = typeKey },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer 
+                                                     else MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    // Country of issue Input
+                    OutlinedTextField(
+                        value = issuingCountry,
+                        onValueChange = { issuingCountry = it },
+                        label = { Text("Pays d'émission") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    
+                    // Doc number input
+                    OutlinedTextField(
+                        value = docNumber,
+                        onValueChange = { docNumber = it },
+                        label = { Text("Numéro du document d'identité") },
+                        placeholder = { Text("Ex: 12XX34567") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { step = 1 },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Retour")
+                        }
+                        
+                        Button(
+                            onClick = { step = 3 },
+                            enabled = docNumber.trim().isNotEmpty() && issuingCountry.trim().isNotEmpty(),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Suivant")
+                        }
+                    }
+                }
+                
+                3 -> {
+                    // Document Photo Scan
                     Text(
-                        text = "Assurez-vous que le document soit lisible et sans reflets.",
+                        text = "Scannez votre document d'identité",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Text(
+                        text = "Cadrez le recto de votre document dans le viseur de la caméra ci-dessous.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 20.dp)
                     )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { step = 3 },
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(16.dp)
+                    
+                    // Viewfinder Simulator Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .padding(bottom = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.Black),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text(Translations.get(language, "simulate_doc"))
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // Border overlay frame
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize(0.85f)
+                                    .border(
+                                        width = 2.dp,
+                                        color = if (docPhotoCaptured) Color.Green.copy(alpha = 0.8f) 
+                                                else if (isDocScanning) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                else Color.White.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                            ) {
+                                if (isDocScanning) {
+                                    // Simulated Green Scanning Bar Animation/Indicator
+                                    LinearProgressIndicator(
+                                        progress = { docScanProgress },
+                                        color = Color.Green,
+                                        trackColor = Color.Transparent,
+                                        modifier = Modifier.fillMaxWidth().align(Alignment.Center)
+                                    )
+                                    Text(
+                                        text = "Analyse en cours...",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp)
+                                    )
+                                } else if (docPhotoCaptured) {
+                                    Column(
+                                        modifier = Modifier.align(Alignment.Center),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Success check",
+                                            tint = Color.Green,
+                                            modifier = Modifier.size(40.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "DOCUMENT CAPTURÉ ET VALIDÉ",
+                                            color = Color.Green,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                } else {
+                                    Column(
+                                        modifier = Modifier.align(Alignment.Center),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CameraAlt,
+                                            contentDescription = "Camera placeholder",
+                                            tint = Color.White.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Cadre de prévisualisation",
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Scan Actions
+                    Button(
+                        onClick = { isDocScanning = true },
+                        enabled = !isDocScanning,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (docPhotoCaptured) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (docPhotoCaptured) "Reprendre la photo du document" else "Lancer la capture caméra (Simulée)")
+                    }
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { step = 2 },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Retour")
+                        }
+                        
+                        Button(
+                            onClick = { step = 4 },
+                            enabled = docPhotoCaptured,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Suivant")
+                        }
                     }
                 }
-                3 -> {
+                
+                4 -> {
+                    // Selfie Verification Screen
+                    Text(
+                        text = "Vérification de vitalité faciale",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Text(
+                        text = "Veuillez cadrer votre visage dans le cercle ci-dessous pour prouver que vous êtes le détenteur légitime.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 20.dp)
+                    )
+                    
+                    // Circular Viewfinder Simulator
                     Box(
                         modifier = Modifier
-                            .size(64.dp)
-                            .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                            .size(170.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black)
+                            .border(
+                                width = 3.dp,
+                                color = if (selfieCaptured) Color.Green 
+                                        else if (isSelfieScanning) MaterialTheme.colorScheme.primary
+                                        else Color.White.copy(alpha = 0.4f),
+                                shape = CircleShape
+                            )
+                            .padding(bottom = 16.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CameraAlt,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                        if (isSelfieScanning) {
+                            CircularProgressIndicator(
+                                progress = { selfieScanProgress },
+                                color = Color.Green,
+                                trackColor = Color.White.copy(alpha = 0.2f),
+                                modifier = Modifier.size(120.dp)
+                            )
+                            Text(
+                                text = "Ajustement...",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
+                            )
+                        } else if (selfieCaptured) {
+                            Column(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Success selfie",
+                                    tint = Color.Green,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "SELFIE COMPATIBLE",
+                                    color = Color.Green,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = "Selfie guide",
+                                    tint = Color.White.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Cliquer pour capturer",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
                     }
+                    
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "2. Capturez un selfie vidéo",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Prenez un rapide selfie pour prouver qu'il s'agit bien de vous.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
+                    
                     Button(
-                        onClick = { step = 4 },
+                        onClick = { isSelfieScanning = true },
+                        enabled = !isSelfieScanning,
                         modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(16.dp)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (selfieCaptured) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                        )
                     ) {
-                        Text(Translations.get(language, "simulate_selfie"))
+                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (selfieCaptured) "Reprendre le selfie" else "Capturer mon selfie (Simulé)")
+                    }
+                    
+                    Spacer(modifier = Modifier.height(32.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { step = 3 },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Retour")
+                        }
+                        
+                        Button(
+                            onClick = { step = 5 },
+                            enabled = selfieCaptured,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Suivant")
+                        }
                     }
                 }
-                4 -> {
+                
+                5 -> {
+                    // Summary and Consent Checklist
+                    Text(
+                        text = "Vérification finale des éléments",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Récapitulatif des pièces :",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Type de Document:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(docType, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Numéro de pièce:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(docNumber, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Pays émetteur:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(issuingCountry, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            }
+                            
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Divider()
+                            Spacer(modifier = Modifier.height(14.dp))
+                            
+                            // Visual checkboxes representing uploaded statuses
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.Green, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("Copie photo du $docType validée", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = Color.Green, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("Test de présence biométrique (Selfie) validé", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Privacy and Consent Policy Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { privacyConsentChecked = !privacyConsentChecked }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = privacyConsentChecked,
+                            onCheckedChange = { privacyConsentChecked = it }
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Je consens au traitement sécurisé de mes données d'identification conformément à la politique de chiffrement IDMuslim.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { step = 4 },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Retour")
+                        }
+                        
+                        Button(
+                            onClick = { step = 6 },
+                            enabled = privacyConsentChecked,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Soumettre")
+                        }
+                    }
+                }
+                
+                6 -> {
+                    // Processing layout
+                    Spacer(modifier = Modifier.height(20.dp))
                     CircularProgressIndicator(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(64.dp)
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                     Text(
-                        text = "Analyse sécurisée en cours...",
+                        text = "Vérification IDMuslim Shield...",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Vérification des hologrammes et recoupement du selfie.",
+                        text = processingLabel,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
                     )
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+                
+                7 -> {
+                    // Success validation
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Success Verification",
+                        tint = Color.Green,
+                        modifier = Modifier.size(72.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Identité Vérifiée !",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Félicitations, vos documents ont été analysés d'une manière cryptographique et vérifiés. Votre statut de profil est maintenant mis à jour en Niveau Émeraude.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                    Spacer(modifier = Modifier.height(32.dp))
+                    Button(
+                        onClick = {
+                            onVerified()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(16.dp)
+                    ) {
+                        Text("Terminer")
+                    }
                 }
             }
         }
@@ -1917,7 +2813,9 @@ fun LanguageSwitcher(
     val languages = listOf(
         "fr" to "Français",
         "en" to "English",
-        "ar" to "العربية"
+        "ar" to "العربية",
+        "es" to "Español",
+        "id" to "Bahasa Ind."
     )
 
     Column(
@@ -1932,24 +2830,25 @@ fun LanguageSwitcher(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 8.dp)
         )
-        Row(
+        // Use a scrollable row if there are many languages
+        androidx.compose.foundation.lazy.LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
                 .padding(4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            languages.forEach { (code, name) ->
+            items(languages.size) { index ->
+                val (code, name) = languages[index]
                 val isSelected = currentLanguage == code
                 Box(
                     modifier = Modifier
-                        .weight(1f)
                         .background(
                             color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
                             shape = RoundedCornerShape(8.dp)
                         )
                         .clickable { onLanguageSelected(code) }
-                        .padding(vertical = 10.dp),
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -2063,7 +2962,8 @@ fun CredentialsDashboardSection(
     language: String,
     ticketsCount: Int,
     context: android.content.Context,
-    onDocumentUpload: () -> Unit = {}
+    onDocumentUpload: () -> Unit = {},
+    onStartVerification: () -> Unit = {}
 ) {
     val certColors = if (isVerified) {
         listOf(Color(0xFF0F5A47), Color(0xFF1B4D3E)) // Dark Emerald for verified
@@ -2143,29 +3043,13 @@ fun CredentialsDashboardSection(
         )
 
         if (!isVerified) {
-            if (verificationStatus == "PENDING") {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(Translations.get(language, "verification_in_progress"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(verificationStep.ifBlank { Translations.get(language, "doc_under_review") }, style = MaterialTheme.typography.bodySmall)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                }
-            } else {
-                OutlinedButton(
-                    onClick = onDocumentUpload,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.Default.Info, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(Translations.get(language, "submit_doc"))
-                }
-            }
+            VerificationStatusDashboard(
+                verificationStatus = verificationStatus,
+                verificationStep = verificationStep,
+                language = language,
+                onStartVerification = onStartVerification,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+            )
         }
 
         // 2. Verified Digital ID Certificate (Attestation Officielle)
@@ -2269,7 +3153,7 @@ fun CredentialsDashboardSection(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Divider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -2656,5 +3540,668 @@ fun FamilyMembersSection(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun PaymentDialog(
+    onDismiss: () -> Unit,
+    onPaymentSuccess: () -> Unit
+) {
+    var selectedMethod by remember { mutableStateOf("card") } // "card", "paypal", "crypto"
+    var isProcessing by remember { mutableStateOf(false) }
+    var showPayPalWebView by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isProcessing) {
+        if (isProcessing) {
+            kotlinx.coroutines.delay(2000)
+            onPaymentSuccess()
+        }
+    }
+
+    if (showPayPalWebView) {
+        PayPalWebView(
+            onDismiss = { showPayPalWebView = false },
+            onSuccess = {
+                showPayPalWebView = false
+                onPaymentSuccess()
+            }
+        )
+    } else {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!isProcessing) onDismiss() },
+            title = {
+                Text(
+                    "Abonnement Premium",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                if (isProcessing) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Traitement du paiement en cours...")
+                    }
+                } else {
+                    Column {
+                        Text(
+                            "Débloquez la génération de votre profil PDF officiel IDMuslim pour 4.99€.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Text("Moyen de paiement", style = MaterialTheme.typography.labelMedium)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Card
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedMethod == "card") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .clickable { selectedMethod = "card" }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = selectedMethod == "card", onClick = { selectedMethod = "card" })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(imageVector = Icons.Default.Info, contentDescription = null) // Using Info as fallback for CreditCard
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Carte Bancaire", fontWeight = FontWeight.SemiBold)
+                        }
+                        
+                        // PayPal
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedMethod == "paypal") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .clickable { selectedMethod = "paypal" }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = selectedMethod == "paypal", onClick = { selectedMethod = "paypal" })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null) // Using AccountCircle for PayPal
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("PayPal", fontWeight = FontWeight.SemiBold)
+                        }
+                        
+                        // Crypto
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedMethod == "crypto") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                .clickable { selectedMethod = "crypto" }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = selectedMethod == "crypto", onClick = { selectedMethod = "crypto" })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(imageVector = Icons.Default.Security, contentDescription = null) // Using Security for Crypto
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Crypto (BTC, ETH, USDT)", fontWeight = FontWeight.SemiBold)
+                        }
+                        
+                        if (selectedMethod == "card") {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            androidx.compose.material3.OutlinedTextField(
+                                value = "•••• •••• •••• 4242",
+                                onValueChange = {},
+                                label = { Text("Numéro de carte") },
+                                readOnly = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else if (selectedMethod == "paypal") {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Vous allez être redirigé vers l'interface sécurisée PayPal.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (selectedMethod == "crypto") {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Le paiement sera effectué via la blockchain de manière sécurisée et anonyme.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (!isProcessing) {
+                    Button(onClick = { 
+                        if (selectedMethod == "paypal") {
+                            showPayPalWebView = true
+                        } else {
+                            isProcessing = true
+                        }
+                    }) {
+                        Text(if (selectedMethod == "paypal") "Payer via PayPal" else if (selectedMethod == "crypto") "Payer en Crypto" else "Payer 4.99€")
+                    }
+                }
+            },
+            dismissButton = {
+                if (!isProcessing) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Annuler")
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun PayPalWebView(
+    onDismiss: () -> Unit,
+    onSuccess: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.IconButton(onClick = onDismiss) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Fermer")
+                    }
+                    Text("Paiement Sécurisé", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    androidx.compose.material3.TextButton(onClick = onSuccess) {
+                        Text("J'ai payé")
+                    }
+                }
+                
+                val htmlContent = """
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1">
+                    </head>
+                    <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f5;">
+                        <div style="width: 100%; max-width: 400px; padding: 20px;">
+                            <script src="https://www.paypal.com/sdk/js?client-id=BAAKaiX0BuX6gNTkF2kNzlIXvR4xp5y9gaP4BHNdYpd6WaX_LZoVVACXAEuYIqCil4-dzwZe6iqeipYKKI&components=hosted-buttons&disable-funding=venmo&currency=USD"></script>
+                            <div id="paypal-container-WDB6DJYF7QW6E"></div>
+                            <script>
+                              paypal.HostedButtons({
+                                hostedButtonId: "WDB6DJYF7QW6E",
+                              }).render("#paypal-container-WDB6DJYF7QW6E")
+                            </script>
+                        </div>
+                    </body>
+                    </html>
+                """.trimIndent()
+                
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { context ->
+                        android.webkit.WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.loadsImagesAutomatically = true
+                            settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+                            webViewClient = object : android.webkit.WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                    return super.shouldOverrideUrlLoading(view, request)
+                                }
+                            }
+                            loadDataWithBaseURL("https://www.paypal.com", htmlContent, "text/html", "UTF-8", null)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize().weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun VerificationStatusDashboard(
+    verificationStatus: String,
+    verificationStep: String,
+    language: String,
+    onStartVerification: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val statusUpper = verificationStatus.uppercase()
+    val isPending = statusUpper == "PENDING"
+    val isVerified = statusUpper == "VERIFIED"
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .testTag("verification_status_dashboard"),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isVerified) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+            } else if (isPending) {
+                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.15f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            }
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isVerified) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+            else if (isPending) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
+        ) {
+            // Header Block with status label
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "VÉRIFICATION D'IDENTITÉ",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isVerified) MaterialTheme.colorScheme.primary 
+                                else if (isPending) MaterialTheme.colorScheme.tertiary 
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (isVerified) "Statut : Profil Certifié Émeraude" 
+                               else if (isPending) "Statut : Analyse en cours" 
+                               else "Statut : Non Vérifié",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isVerified) Color(0xFFD1E7DD)
+                            else if (isPending) MaterialTheme.colorScheme.tertiaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isVerified) Icons.Default.CheckCircle 
+                                      else if (isPending) Icons.Default.Refresh 
+                                      else Icons.Default.Security,
+                        contentDescription = "Status Indicator",
+                        tint = if (isVerified) Color(0xFF0F5132) 
+                               else if (isPending) MaterialTheme.colorScheme.onTertiaryContainer
+                               else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Step-by-step Timeline ProgressBar UI
+            val steps = listOf(
+                Triple("Soumission", "Dépôt des pièces", true),
+                Triple("Cryptog.", "Intégrité & clés", isPending || isVerified),
+                Triple("Biométrie", "Selfie vitalité", isVerified || (isPending && (verificationStep.contains("Reconnaissance") || verificationStep.contains("biométrie") || verificationStep.contains("Finalisation")))),
+                Triple("ID Émis", "Prêt et disponible", isVerified)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                steps.forEachIndexed { index, (label, desc, isTrue) ->
+                    // Connector line between nodes
+                    if (index > 0) {
+                        val isBetweenCompleted = steps[index - 1].third && isTrue
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(4.dp)
+                                .padding(horizontal = 4.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isBetweenCompleted) {
+                                        if (isVerified) Color(0xFF198754) else MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                                    }
+                                )
+                        )
+                    }
+
+                    // Circular Node
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1.5f, fill = false)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isTrue) {
+                                        if (isVerified) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    }
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = if (isTrue) {
+                                        if (isVerified) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    },
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isTrue && index < steps.lastIndex) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Done",
+                                    tint = if (isVerified) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else if (isTrue && index == steps.lastIndex) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Success",
+                                    tint = Color(0xFF239B56),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (isTrue) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isTrue) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Informative detail row
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp)
+                ) {
+                    if (isVerified) {
+                        Text(
+                            text = "Félicitations, votre identité a été validée avec succès ! Vos justificatifs officiels et votre pass wallet ont été générés cryptographiquement.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (isPending) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = MaterialTheme.colorScheme.tertiary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Activité courante :",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = verificationStep.ifBlank { "Examen par l'infrastructure sécurisée..." },
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Les algorithmes IDMuslim Shield analysent les filigranes gouvernementaux de votre pièce.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = "La vérification d'identité sécurisée IDMuslim vous permet d'obtenir un badge d'attestation officiel, de déverrouiller l'Id numérique premium et plus encore.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = onStartVerification,
+                            modifier = Modifier.fillMaxWidth().testTag("launch_dashboard_verification")
+                        ) {
+                            Icon(imageVector = Icons.Default.Security, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Commencer la certification Émeraude")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VerificationSuccessAlert(
+    show: Boolean,
+    onDismiss: () -> Unit,
+    onViewId: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (show) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = onDismiss,
+            modifier = modifier.testTag("verification_success_alert"),
+            title = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE8F5E9)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Success Star",
+                            tint = Color(0xFF2E7D32),
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Identité Numérique Prête !",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = "Félicitations ! Votre attestation d'identité numérique IDMuslim a été signée avec succès par notre autorité cryptographique décentralisée.\n\nVotre badge de Citoyen Vérifié niveau Émeraude est officiellement actif.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onViewId()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("Visualiser ma Carte d'Identité")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Fermer")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun VerificationFaqDialog(onDismiss: () -> Unit) {
+    var question by remember { mutableStateOf("") }
+    var chatHistory by remember { mutableStateOf(listOf<Pair<String, String>>()) }
+    var isLoading by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("FAQ Vérification (IA)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onDismiss) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Fermer")
+                    }
+                }
+                HorizontalDivider()
+                // Chat / FAQ
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    item {
+                        Text(
+                            "Posez-moi vos questions sur le processus de vérification d'identité IDMuslim. Je suis un assistant intelligent propulsé par Gemini.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                    }
+                    items(chatHistory) { (q, a) ->
+                         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                             // User Bubble
+                             Box(modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(16.dp, 16.dp, 0.dp, 16.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(12.dp)) {
+                                 Text(q, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                             }
+                             Spacer(modifier = Modifier.height(8.dp))
+                             // Bot Bubble
+                             Box(modifier = Modifier.align(Alignment.Start).clip(RoundedCornerShape(16.dp, 16.dp, 16.dp, 0.dp)).background(MaterialTheme.colorScheme.secondaryContainer).padding(12.dp)) {
+                                 Text(a, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                             }
+                         }
+                    }
+                    if (isLoading) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider()
+                // Input
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = question,
+                        onValueChange = { question = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Posez votre question...") },
+                        maxLines = 3
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (question.isNotBlank()) {
+                                val currentQ = question
+                                chatHistory = chatHistory + (currentQ to "...")
+                                question = ""
+                                isLoading = true
+                                coroutineScope.launch {
+                                    val prompt = "Contexte: IDMuslim est une application de passeport/identité. Le processus de vérification d'identité demande le numéro de passeport, pièce d'identité et un paiement. L'utilisateur pose la question suivante sur la vérification. Réponds de manière utile et polie.\n\nQuestion: $currentQ"
+                                    val answer = com.example.network.gemini.GeminiClient.askQuestion(prompt)
+                                    chatHistory = chatHistory.dropLast(1) + (currentQ to answer)
+                                    isLoading = false
+                                    if (chatHistory.isNotEmpty()) {
+                                        listState.animateScrollToItem(chatHistory.size)
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !isLoading && question.isNotBlank()
+                    ) {
+                        Text("Envoyer")
+                    }
+                }
+            }
+        }
     }
 }

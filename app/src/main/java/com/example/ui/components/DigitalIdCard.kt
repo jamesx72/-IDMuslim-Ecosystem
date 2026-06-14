@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import coil.compose.AsyncImage
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -52,6 +53,8 @@ fun DigitalIdCard(
     dateOfBirth: String,
     residency: String,
     communityAffiliation: String,
+    passportNumber: String? = null,
+    licenseNumber: String? = null,
     expiryDate: String,
     language: String,
     privacyMode: Boolean = false,
@@ -87,11 +90,22 @@ fun DigitalIdCard(
         )
     )
 
+    var isFlipped by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(
+        targetValue = if (isFlipped) 180f else 0f,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
+    )
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .aspectRatio(1.586f), // ID card aspect ratio
+            .aspectRatio(1.586f) // ID card aspect ratio
+            .graphicsLayer {
+                rotationY = rotation
+                cameraDistance = 12f * density
+            },
+        onClick = { isFlipped = !isFlipped },
         shape = RoundedCornerShape(24.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
@@ -139,6 +153,14 @@ fun DigitalIdCard(
                     }
                 }
         ) {
+            if (rotation <= 90f) {
+                AsyncImage(
+                    model = "https://images.unsplash.com/photo-1565552645632-d725f8bfc19a?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80",
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.35f
+                )
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -223,6 +245,19 @@ fun DigitalIdCard(
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
+                
+                Text(
+                    text = "Sache donc qu’en vérité il n’y a point de divinité à part Allah",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
 
                 // Bottom Content Grid
                 Row(
@@ -283,6 +318,45 @@ fun DigitalIdCard(
                             modifier = Modifier.size(36.dp)
                         )
                     }
+                }
+            }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp)
+                        .graphicsLayer { rotationY = 180f }
+                ) {
+                    Text(
+                        text = "INFORMATIONS GOUVERNEMENTALES",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.8f),
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    
+                    IdField(
+                        label = "Numéro de Passeport",
+                        value = if (privacyMode) Translations.get(language, "hidden_field") else passportNumber?.ifEmpty { "--" } ?: "--"
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    IdField(
+                        label = "Numéro de Permis",
+                        value = if (privacyMode) Translations.get(language, "hidden_field") else licenseNumber?.ifEmpty { "--" } ?: "--"
+                    )
+                    
+                    Spacer(modifier = Modifier.weight(1f))
+                    
+                    // Decorative barcode for the back
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
+                            .background(Color.White.copy(alpha = 0.3f))
+                    )
                 }
             }
         }

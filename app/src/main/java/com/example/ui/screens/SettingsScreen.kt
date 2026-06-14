@@ -3,7 +3,7 @@ package com.example.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
@@ -33,7 +33,7 @@ fun SettingsScreen(
                 title = { Text(Translations.get(language, "settings_title")) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = Translations.get(language, "cancel"))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = Translations.get(language, "cancel"))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

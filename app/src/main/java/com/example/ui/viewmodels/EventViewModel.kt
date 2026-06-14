@@ -25,12 +25,45 @@ import com.google.firebase.storage.FirebaseStorage
 class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: EventRepository
     private val activityLogDao: com.example.data.ActivityLogDao
+    private val communityPostDao: com.example.data.CommunityPostDao
 
     init {
         val database = AppDatabase.getDatabase(application)
         val eventDao = database.eventDao()
         activityLogDao = database.activityLogDao()
+        communityPostDao = database.communityPostDao()
         repository = EventRepository(eventDao)
+    }
+
+    val communityPosts: StateFlow<List<com.example.data.CommunityPostEntity>> = communityPostDao.getAllPosts().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    fun createCommunityPost(title: String, content: String, type: String, communityName: String) {
+        val sessionManager = com.example.network.ApiClient.getSessionManager()
+        val authorName = sessionManager.getProfileFullName()?.takeIf { it.isNotEmpty() } ?: "Admin"
+        viewModelScope.launch {
+            communityPostDao.insertPost(
+                com.example.data.CommunityPostEntity(
+                    title = title,
+                    content = content,
+                    type = type,
+                    timestamp = System.currentTimeMillis(),
+                    authorName = authorName,
+                    communityName = communityName
+                )
+            )
+            logActivity("CREATE_POST", "Created post: $title in $communityName")
+        }
+    }
+
+    fun deleteCommunityPost(postId: Int) {
+        viewModelScope.launch {
+            communityPostDao.deletePost(postId)
+            logActivity("DELETE_POST", "Deleted post ID: $postId")
+        }
     }
 
     val activityLogs: StateFlow<List<com.example.data.ActivityLogEntity>> = activityLogDao.getAllLogs().stateIn(
@@ -120,6 +153,15 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _profileCommunityAffiliation = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileCommunityAffiliation())
     val profileCommunityAffiliation: StateFlow<String?> = _profileCommunityAffiliation.asStateFlow()
+
+    private val _profilePassportNumber = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPassportNumber())
+    val profilePassportNumber: StateFlow<String?> = _profilePassportNumber.asStateFlow()
+
+    private val _profileLicenseNumber = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getLicenseNumber())
+    val profileLicenseNumber: StateFlow<String?> = _profileLicenseNumber.asStateFlow()
+
+    private val _hasPaidForPdf = MutableStateFlow(com.example.network.ApiClient.getSessionManager().hasPaidForPdf())
+    val hasPaidForPdf: StateFlow<Boolean> = _hasPaidForPdf.asStateFlow()
 
     fun setVerificationStatus(status: String) {
         com.example.network.ApiClient.getSessionManager().saveVerificationStatus(status)
@@ -280,7 +322,22 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         _profileCommunityAffiliation.value = community
     }
 
-    fun saveProfileToFirestore(fullName: String, dob: String, residency: String, community: String) {
+    fun updateProfilePassportNumber(passportNumber: String) {
+        com.example.network.ApiClient.getSessionManager().savePassportNumber(passportNumber)
+        _profilePassportNumber.value = passportNumber
+    }
+
+    fun updateProfileLicenseNumber(licenseNumber: String) {
+        com.example.network.ApiClient.getSessionManager().saveLicenseNumber(licenseNumber)
+        _profileLicenseNumber.value = licenseNumber
+    }
+
+    fun setHasPaidForPdf(hasPaid: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveHasPaidForPdf(hasPaid)
+        _hasPaidForPdf.value = hasPaid
+    }
+
+    fun saveProfileToFirestore(fullName: String, dob: String, residency: String, community: String, passportNumber: String, licenseNumber: String) {
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
         viewModelScope.launch {
             try {
@@ -289,6 +346,8 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     "dob" to dob,
                     "residency" to residency,
                     "community" to community,
+                    "passportNumber" to passportNumber,
+                    "licenseNumber" to licenseNumber,
                     "updatedAt" to System.currentTimeMillis()
                 )
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)

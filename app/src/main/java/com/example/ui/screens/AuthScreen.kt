@@ -432,6 +432,41 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                             }
                         }
 
+                        // Forgot Password (Sign In Only)
+                        AnimatedVisibility(visible = !isSignUp) {
+                            TextButton(
+                                onClick = {
+                                    if (email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                                        isEmailError = true
+                                        errorMessage = Translations.get(language, "auth_enter_email_for_reset")
+                                    } else {
+                                        isLoading = true
+                                        errorMessage = null
+                                        successMessage = null
+                                        auth.sendPasswordResetEmail(email)
+                                            .addOnCompleteListener { task ->
+                                                isLoading = false
+                                                if (task.isSuccessful) {
+                                                    successMessage = String.format(Translations.get(language, "auth_reset_email_sent"), email)
+                                                } else {
+                                                    errorMessage = task.exception?.localizedMessage ?: Translations.get(language, "auth_reset_email_failed")
+                                                }
+                                            }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.End)
+                                    .padding(bottom = 16.dp)
+                                    .testTag("forgot_password_button")
+                            ) {
+                                Text(
+                                    text = Translations.get(language, "auth_forgot_password"),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
                         // Main Submit Button
                         Button(
                             onClick = {

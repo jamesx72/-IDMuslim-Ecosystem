@@ -24,15 +24,17 @@ fun EditProfileScreen(
     val currentDob by viewModel.profileDob.collectAsState()
     val currentResidency by viewModel.profileResidency.collectAsState()
     val currentCommunity by viewModel.profileCommunityAffiliation.collectAsState()
+    val currentPassport by viewModel.profilePassportNumber.collectAsState()
+    val currentLicense by viewModel.profileLicenseNumber.collectAsState()
 
     var fullName by remember { mutableStateOf(currentFullName ?: "") }
     var dob by remember { mutableStateOf(currentDob ?: "") }
     var residency by remember { mutableStateOf(currentResidency ?: "") }
     var community by remember { mutableStateOf(currentCommunity ?: "") }
-    var nationality by remember { mutableStateOf("") }
-    var idDocumentNumber by remember { mutableStateOf("") }
+    var passportNumber by remember { mutableStateOf(currentPassport ?: "") }
+    var licenseNumber by remember { mutableStateOf(currentLicense ?: "") }
 
-    LaunchedEffect(currentFullName, currentDob, currentResidency, currentCommunity) {
+    LaunchedEffect(currentFullName, currentDob, currentResidency, currentCommunity, currentPassport, currentLicense) {
         if (fullName.isEmpty() && !currentFullName.isNullOrEmpty()) {
             fullName = currentFullName ?: ""
         }
@@ -44,6 +46,12 @@ fun EditProfileScreen(
         }
         if (community.isEmpty() && !currentCommunity.isNullOrEmpty()) {
             community = currentCommunity ?: ""
+        }
+        if (passportNumber.isEmpty() && !currentPassport.isNullOrEmpty()) {
+            passportNumber = currentPassport ?: ""
+        }
+        if (licenseNumber.isEmpty() && !currentLicense.isNullOrEmpty()) {
+            licenseNumber = currentLicense ?: ""
         }
     }
 
@@ -97,26 +105,81 @@ fun EditProfileScreen(
                 shape = RoundedCornerShape(12.dp)
             )
 
-            OutlinedTextField(
-                value = community,
-                onValueChange = { community = it },
-                label = { Text(Translations.get(language, "community_affiliation")) },
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                shape = RoundedCornerShape(12.dp)
-            )
+            var communityExpanded by remember { mutableStateOf(false) }
+            var communitySearchResults by remember { mutableStateOf(emptyList<String>()) }
+            var isSearchingCommunity by remember { mutableStateOf(false) }
+
+            LaunchedEffect(community) {
+                if (community.isBlank() || isSearchingCommunity) {
+                    communityExpanded = false
+                    return@LaunchedEffect
+                }
+                kotlinx.coroutines.delay(500)
+                try {
+                    val apiKey = com.example.BuildConfig.PLACES_API_KEY
+                    if (apiKey.isNotEmpty() && apiKey != "YOUR_GOOGLE_PLACES_API_KEY") {
+                        val response = com.example.network.PlacesApiClient.api.getPlacePredictions(
+                            input = community,
+                            apiKey = apiKey
+                        )
+                        if (response.status == "OK") {
+                            communitySearchResults = response.predictions?.map { it.description } ?: emptyList()
+                            communityExpanded = communitySearchResults.isNotEmpty()
+                        } else {
+                            communitySearchResults = emptyList()
+                            communityExpanded = false
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    communitySearchResults = emptyList()
+                    communityExpanded = false
+                }
+            }
+
+            ExposedDropdownMenuBox(
+                expanded = communityExpanded,
+                onExpandedChange = { communityExpanded = !communityExpanded }
+            ) {
+                OutlinedTextField(
+                    value = community,
+                    onValueChange = { 
+                        community = it 
+                        isSearchingCommunity = false
+                    },
+                    label = { Text(Translations.get(language, "community_affiliation")) },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).menuAnchor(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                ExposedDropdownMenu(
+                    expanded = communityExpanded,
+                    onDismissRequest = { communityExpanded = false }
+                ) {
+                    communitySearchResults.forEach { result ->
+                        DropdownMenuItem(
+                            text = { Text(result) },
+                            onClick = {
+                                community = result
+                                isSearchingCommunity = true
+                                communityExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
             
             OutlinedTextField(
-                value = nationality,
-                onValueChange = { nationality = it },
-                label = { Text("Nationality") },
+                value = passportNumber,
+                onValueChange = { passportNumber = it },
+                label = { Text("Numéro de passeport") },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                 shape = RoundedCornerShape(12.dp)
             )
 
             OutlinedTextField(
-                value = idDocumentNumber,
-                onValueChange = { idDocumentNumber = it },
-                label = { Text("Identity Document Number") },
+                value = licenseNumber,
+                onValueChange = { licenseNumber = it },
+                label = { Text("Numéro de permis") },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
                 shape = RoundedCornerShape(12.dp)
             )
@@ -129,29 +192,18 @@ fun EditProfileScreen(
                                      (dob != currentDob) ||
                                      (residency != currentResidency) ||
                                      (community != currentCommunity) ||
-                                     nationality.isNotEmpty() ||
-                                     idDocumentNumber.isNotEmpty()
+                                     (passportNumber != currentPassport) ||
+                                     (licenseNumber != currentLicense)
                                      
                     if (hasChanged) {
                         viewModel.updateProfileFullName(fullName)
                         viewModel.updateProfileDob(dob)
                         viewModel.updateProfileResidency(residency)
                         viewModel.updateProfileCommunityAffiliation(community)
+                        viewModel.updateProfilePassportNumber(passportNumber)
+                        viewModel.updateProfileLicenseNumber(licenseNumber)
                         
-                        viewModel.saveProfileToFirestore(fullName, dob, residency, community)
-                        
-                        // For demonstration, let's also save the additional fields to Firestore.
-                        val uUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-                        uUser?.let { u ->
-                            val extraData = hashMapOf<String, Any>(
-                                "nationality" to nationality,
-                                "idDocumentNumber" to idDocumentNumber
-                            )
-                            com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                                .collection("users")
-                                .document(u.uid)
-                                .set(extraData, com.google.firebase.firestore.SetOptions.merge())
-                        }
+                        viewModel.saveProfileToFirestore(fullName, dob, residency, community, passportNumber, licenseNumber)
 
                         viewModel.invalidateVerification() // Triggers re-verification
                         viewModel.logActivity("PROFILE_UPDATE", "User updated personal profile information and triggered ID re-verification.")

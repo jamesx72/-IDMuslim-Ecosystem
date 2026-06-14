@@ -19,8 +19,12 @@ class SessionManager(context: Context) {
         private const val KEY_PROFILE_DOB = "profile_dob"
         private const val KEY_PROFILE_RESIDENCY = "profile_residency"
         private const val KEY_PROFILE_COMMUNITY_AFFILIATION = "profile_community_affiliation"
+        private const val KEY_PASSPORT_NUMBER = "passport_number"
+        private const val KEY_LICENSE_NUMBER = "license_number"
         private const val KEY_USER_EMAIL = "user_email"
         private const val KEY_DARK_THEME = "dark_theme"
+        private const val KEY_HAS_PAID_PDF = "has_paid_pdf"
+        private const val KEY_ID_READY_DISMISSED = "id_ready_dismissed"
     }
 
     fun saveAuthToken(token: String) {
@@ -139,6 +143,38 @@ class SessionManager(context: Context) {
 
     fun getProfileCommunityAffiliation(): String? {
         return prefs.getString(KEY_PROFILE_COMMUNITY_AFFILIATION, null)
+    }
+
+    fun savePassportNumber(passportNumber: String) {
+        prefs.edit().putString(KEY_PASSPORT_NUMBER, passportNumber).apply()
+    }
+
+    fun getPassportNumber(): String? {
+        return prefs.getString(KEY_PASSPORT_NUMBER, null)
+    }
+
+    fun saveLicenseNumber(licenseNumber: String) {
+        prefs.edit().putString(KEY_LICENSE_NUMBER, licenseNumber).apply()
+    }
+
+    fun getLicenseNumber(): String? {
+        return prefs.getString(KEY_LICENSE_NUMBER, null)
+    }
+
+    fun saveHasPaidForPdf(hasPaid: Boolean) {
+        prefs.edit().putBoolean(KEY_HAS_PAID_PDF, hasPaid).apply()
+    }
+
+    fun hasPaidForPdf(): Boolean {
+        return prefs.getBoolean(KEY_HAS_PAID_PDF, false)
+    }
+
+    fun saveIdReadyAlertDismissed(dismissed: Boolean) {
+        prefs.edit().putBoolean(KEY_ID_READY_DISMISSED, dismissed).apply()
+    }
+
+    fun isIdReadyAlertDismissed(): Boolean {
+        return prefs.getBoolean(KEY_ID_READY_DISMISSED, false)
     }
     
     fun logout() {

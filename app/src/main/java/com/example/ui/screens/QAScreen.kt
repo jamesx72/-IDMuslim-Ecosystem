@@ -7,8 +7,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -129,7 +129,7 @@ fun QAScreen() {
                         modifier = Modifier.size(56.dp),
                         shape = CircleShape
                     ) {
-                        Icon(imageVector = Icons.Default.Send, contentDescription = "Envoyer")
+                        Icon(imageVector = Icons.AutoMirrored.Filled.Send, contentDescription = "Envoyer")
                     }
                 }
             }
@@ -145,7 +145,7 @@ fun ChatBubble(message: QAMessage) {
     ) {
         if (!message.isUser) {
             Icon(
-                imageVector = Icons.Default.HelpOutline,
+                imageVector = Icons.AutoMirrored.Filled.HelpOutline,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
