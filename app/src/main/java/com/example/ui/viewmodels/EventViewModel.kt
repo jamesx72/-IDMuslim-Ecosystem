@@ -76,7 +76,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                         isVerified = isVerified,
                         dob = doc.getString("dob") ?: "",
                         residency = doc.getString("residency") ?: "",
-                        community = doc.getString("community") ?: ""
+                        community = doc.getString("community") ?: "",
+                        country = doc.getString("country") ?: "",
+                        membershipStatus = doc.getString("membershipStatus") ?: "PENDING"
                     )
                 }
                 _usersList.value = members
@@ -276,6 +278,25 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun updateProfileCommunityAffiliation(community: String) {
         com.example.network.ApiClient.getSessionManager().saveProfileCommunityAffiliation(community)
         _profileCommunityAffiliation.value = community
+    }
+
+    fun saveProfileToFirestore(fullName: String, dob: String, residency: String, community: String) {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
+        viewModelScope.launch {
+            try {
+                val data = hashMapOf(
+                    "fullName" to fullName,
+                    "dob" to dob,
+                    "residency" to residency,
+                    "community" to community,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+                com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .set(data, com.google.firebase.firestore.SetOptions.merge())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     private val _familyMembers = MutableStateFlow<List<com.example.data.FamilyMember>>(emptyList())

@@ -7,5 +7,7 @@ data class UserDto(
     val dob: String = "",
     val residency: String = "",
     val community: String = "",
-    val expiryDate: String = ""
+    val expiryDate: String = "",
+    val country: String = "",
+    val membershipStatus: String = "PENDING"
 )
