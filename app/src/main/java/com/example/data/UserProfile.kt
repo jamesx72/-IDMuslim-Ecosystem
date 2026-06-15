@@ -5,34 +5,30 @@ import com.google.firebase.firestore.IgnoreExtraProperties
 
 /**
  * Firestore Database Schema for User Profile
- * Collection Name: "users"
- * Document ID: Firebase Auth UID
+ * This demonstrates a secure, privacy-first data partitioning approach.
  */
 @IgnoreExtraProperties
-data class UserProfile(
+data class PublicProfile(
     var uid: String = "",
     var fullName: String = "",
     var country: String = "",
-    var membershipStatus: String = "PENDING", // e.g., PENDING, ACTIVE, EXPIRED, REVOKED
+    var membershipStatus: String = "PENDING", 
     var isVerified: Boolean = false,
-    var dob: String = "",
-    var residency: String = "",
     var community: String = "",
     var expiryDate: String = "",
     var updatedAt: Long = System.currentTimeMillis()
-) {
-    @Exclude
-    fun toMap(): Map<String, Any?> {
-        return mapOf(
-            "fullName" to fullName,
-            "country" to country,
-            "membershipStatus" to membershipStatus,
-            "isVerified" to isVerified,
-            "dob" to dob,
-            "residency" to residency,
-            "community" to community,
-            "expiryDate" to expiryDate,
-            "updatedAt" to updatedAt
-        )
-    }
-}
+)
+
+/**
+ * Sensitive identity information stored in a restricted subcollection
+ * Collection Name: "users/{uid}/private_profile"
+ * Document ID: "identity"
+ */
+@IgnoreExtraProperties
+data class PrivateIdentity(
+    var dob: String = "",
+    var residency: String = "",
+    var passportNumber: String = "",
+    var licenseNumber: String = "",
+    var updatedAt: Long = System.currentTimeMillis()
+)

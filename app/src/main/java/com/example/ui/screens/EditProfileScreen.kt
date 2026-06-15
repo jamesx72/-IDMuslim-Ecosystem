@@ -34,6 +34,8 @@ fun EditProfileScreen(
     var passportNumber by remember { mutableStateOf(currentPassport ?: "") }
     var licenseNumber by remember { mutableStateOf(currentLicense ?: "") }
 
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(currentFullName, currentDob, currentResidency, currentCommunity, currentPassport, currentLicense) {
         if (fullName.isEmpty() && !currentFullName.isNullOrEmpty()) {
             fullName = currentFullName ?: ""
@@ -148,7 +150,7 @@ fun EditProfileScreen(
                         isSearchingCommunity = false
                     },
                     label = { Text(Translations.get(language, "community_affiliation")) },
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).menuAnchor(),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp).menuAnchor(MenuAnchorType.PrimaryNotEditable, true),
                     shape = RoundedCornerShape(12.dp)
                 )
                 ExposedDropdownMenu(
@@ -186,8 +188,28 @@ fun EditProfileScreen(
             
             Spacer(modifier = Modifier.weight(1f))
 
+            errorMessage?.let { msg ->
+                Text(
+                    text = msg,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                )
+            }
+
             Button(
                 onClick = {
+                    if (fullName.isBlank() || dob.isBlank() || residency.isBlank() || community.isBlank()) {
+                        errorMessage = Translations.get(language, "error_required_fields")
+                        return@Button
+                    }
+                    val dateRegex = Regex("^\\d{2}/\\d{2}/\\d{4}$")
+                    if (!dateRegex.matches(dob)) {
+                        errorMessage = Translations.get(language, "error_invalid_date")
+                        return@Button
+                    }
+                    errorMessage = null
+
                     val hasChanged = (fullName != currentFullName) ||
                                      (dob != currentDob) ||
                                      (residency != currentResidency) ||

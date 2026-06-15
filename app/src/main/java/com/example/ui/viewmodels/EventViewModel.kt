@@ -341,17 +341,26 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
         viewModelScope.launch {
             try {
-                val data = hashMapOf(
+                // Public profile data
+                val publicData = hashMapOf(
                     "fullName" to fullName,
+                    "community" to community,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+                com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .set(publicData, com.google.firebase.firestore.SetOptions.merge())
+
+                // Private highly sensitive identity data stored securely in a subcollection
+                val privateData = hashMapOf(
                     "dob" to dob,
                     "residency" to residency,
-                    "community" to community,
                     "passportNumber" to passportNumber,
                     "licenseNumber" to licenseNumber,
                     "updatedAt" to System.currentTimeMillis()
                 )
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
-                    .set(data, com.google.firebase.firestore.SetOptions.merge())
+                    .collection("private_profile").document("identity")
+                    .set(privateData, com.google.firebase.firestore.SetOptions.merge())
             } catch (e: Exception) {
                 e.printStackTrace()
             }
