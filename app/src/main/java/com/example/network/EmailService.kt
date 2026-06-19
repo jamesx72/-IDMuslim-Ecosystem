@@ -51,7 +51,7 @@ object EmailService {
 
             retrofit = Retrofit.Builder()
                 .baseUrl("https://api.sendgrid.com/")
-                .addConverterFactory(MoshiConverterFactory.create())
+                .addConverterFactory(MoshiConverterFactory.create(com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()))
                 .client(client)
                 .build()
             

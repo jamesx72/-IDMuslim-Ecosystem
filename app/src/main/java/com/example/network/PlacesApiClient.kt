@@ -29,7 +29,7 @@ interface PlacesApi {
 object PlacesApiClient {
     private val retrofit = Retrofit.Builder()
         .baseUrl("https://maps.googleapis.com/")
-        .addConverterFactory(MoshiConverterFactory.create())
+        .addConverterFactory(MoshiConverterFactory.create(com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()))
         .build()
 
     val api: PlacesApi by lazy {

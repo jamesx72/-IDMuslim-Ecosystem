@@ -64,7 +64,7 @@ object PlacesApiClient {
     val api: PlacesApi by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(MoshiConverterFactory.create(com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()))
             .build()
             .create(PlacesApi::class.java)
     }

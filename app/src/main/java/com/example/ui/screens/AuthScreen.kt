@@ -99,6 +99,20 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                                 val fullName = firebaseUser?.displayName ?: account.displayName ?: "Citoyen IDMuslim"
                                 ApiClient.getSessionManager().saveProfileFullName(fullName)
                                 
+                                // Ensure profile document exists in Firestore
+                                if (firebaseUser != null) {
+                                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                    db.collection("users").document(firebaseUser.uid).get().addOnSuccessListener { document ->
+                                        if (!document.exists()) {
+                                            db.collection("users").document(firebaseUser.uid).set(mapOf(
+                                                "fullName" to fullName,
+                                                "email" to (account.email ?: ""),
+                                                "createdAt" to System.currentTimeMillis()
+                                            ), com.google.firebase.firestore.SetOptions.merge())
+                                        }
+                                    }
+                                }
+                                
                                 firebaseUser?.getIdToken(true)?.addOnCompleteListener { tokenTask ->
                                     if (tokenTask.isSuccessful) {
                                         ApiClient.getSessionManager().saveAuthToken(tokenTask.result.token ?: "")
@@ -485,6 +499,17 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                                                         displayName = name
                                                     }
                                                     user?.updateProfile(userProfileChange)
+                                                    
+                                                    // Save initial profile to Firestore to initialize the IDMuslim profile
+                                                    if (user != null) {
+                                                        val userMap = mapOf(
+                                                            "fullName" to name,
+                                                            "email" to email,
+                                                            "createdAt" to System.currentTimeMillis()
+                                                        )
+                                                        com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                                                            .set(userMap, com.google.firebase.firestore.SetOptions.merge())
+                                                    }
                                                     
                                                     // Store auth tokens locally to integrate with existing interceptor
                                                     user?.getIdToken(true)?.addOnCompleteListener { tokenTask ->

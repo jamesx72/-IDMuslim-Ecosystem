@@ -142,6 +142,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _privacyMode = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrivacyMode())
     val privacyMode: StateFlow<Boolean> = _privacyMode.asStateFlow()
 
+    private val _isProfileLoading = MutableStateFlow(false)
+    val isProfileLoading: StateFlow<Boolean> = _isProfileLoading.asStateFlow()
+
     private val _profileFullName = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileFullName())
     val profileFullName: StateFlow<String?> = _profileFullName.asStateFlow()
 
@@ -159,6 +162,18 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _profileLicenseNumber = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getLicenseNumber())
     val profileLicenseNumber: StateFlow<String?> = _profileLicenseNumber.asStateFlow()
+
+    private val _profileDocType = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getDocType())
+    val profileDocType: StateFlow<String?> = _profileDocType.asStateFlow()
+
+    private val _profileDocNumber = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getDocNumber())
+    val profileDocNumber: StateFlow<String?> = _profileDocNumber.asStateFlow()
+
+    private val _profileIssuingCountry = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getIssuingCountry())
+    val profileIssuingCountry: StateFlow<String?> = _profileIssuingCountry.asStateFlow()
+
+    private val _profileExpiryDate = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getExpiryDate())
+    val profileExpiryDate: StateFlow<String?> = _profileExpiryDate.asStateFlow()
 
     private val _hasPaidForPdf = MutableStateFlow(com.example.network.ApiClient.getSessionManager().hasPaidForPdf())
     val hasPaidForPdf: StateFlow<Boolean> = _hasPaidForPdf.asStateFlow()
@@ -332,37 +347,146 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         _profileLicenseNumber.value = licenseNumber
     }
 
+    fun updateProfileDocType(docType: String) {
+        com.example.network.ApiClient.getSessionManager().saveDocType(docType)
+        _profileDocType.value = docType
+    }
+
+    fun updateProfileDocNumber(docNumber: String) {
+        com.example.network.ApiClient.getSessionManager().saveDocNumber(docNumber)
+        _profileDocNumber.value = docNumber
+    }
+
+    fun updateProfileIssuingCountry(issuingCountry: String) {
+        com.example.network.ApiClient.getSessionManager().saveIssuingCountry(issuingCountry)
+        _profileIssuingCountry.value = issuingCountry
+    }
+
+    fun updateProfileExpiryDate(expiryDate: String) {
+        com.example.network.ApiClient.getSessionManager().saveExpiryDate(expiryDate)
+        _profileExpiryDate.value = expiryDate
+    }
+
     fun setHasPaidForPdf(hasPaid: Boolean) {
         com.example.network.ApiClient.getSessionManager().saveHasPaidForPdf(hasPaid)
         _hasPaidForPdf.value = hasPaid
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
+        viewModelScope.launch {
+            try {
+                com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .set(mapOf("hasPaidForPdf" to hasPaid), com.google.firebase.firestore.SetOptions.merge())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
-    fun saveProfileToFirestore(fullName: String, dob: String, residency: String, community: String, passportNumber: String, licenseNumber: String) {
+    fun saveProfileToFirestore(
+        fullName: String, 
+        dob: String, 
+        residency: String, 
+        community: String, 
+        passportNumber: String, 
+        licenseNumber: String,
+        docType: String = "",
+        docNumber: String = "",
+        issuingCountry: String = "",
+        expiryDate: String = ""
+    ) {
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
         viewModelScope.launch {
             try {
                 // Public profile data
-                val publicData = hashMapOf(
-                    "fullName" to fullName,
-                    "community" to community,
-                    "updatedAt" to System.currentTimeMillis()
+                val publicProfile = com.example.data.PublicProfile(
+                    uid = user.uid,
+                    fullName = fullName,
+                    community = community,
+                    updatedAt = System.currentTimeMillis()
                 )
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
-                    .set(publicData, com.google.firebase.firestore.SetOptions.merge())
+                    .set(publicProfile, com.google.firebase.firestore.SetOptions.merge())
 
                 // Private highly sensitive identity data stored securely in a subcollection
-                val privateData = hashMapOf(
-                    "dob" to dob,
-                    "residency" to residency,
-                    "passportNumber" to passportNumber,
-                    "licenseNumber" to licenseNumber,
-                    "updatedAt" to System.currentTimeMillis()
+                val privateIdentity = com.example.data.PrivateIdentity(
+                    dob = dob,
+                    residency = residency,
+                    passportNumber = passportNumber,
+                    licenseNumber = licenseNumber,
+                    docType = docType,
+                    docNumber = docNumber,
+                    issuingCountry = issuingCountry,
+                    expiryDate = expiryDate,
+                    updatedAt = System.currentTimeMillis()
                 )
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
                     .collection("private_profile").document("identity")
-                    .set(privateData, com.google.firebase.firestore.SetOptions.merge())
+                    .set(privateIdentity, com.google.firebase.firestore.SetOptions.merge())
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    fun loadProfileFromFirestore() {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
+        viewModelScope.launch {
+            _isProfileLoading.value = true
+            try {
+                var pendingTasks = 2
+                fun checkComplete() {
+                    pendingTasks--
+                    if (pendingTasks <= 0) {
+                        _isProfileLoading.value = false
+                    }
+                }
+
+                // Public profile data
+                com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+                    .addOnCompleteListener { task ->
+                        if (task.isSuccessful) {
+                            val document = task.result
+                            if (document != null && document.exists()) {
+                                val publicProfile = document.toObject(com.example.data.PublicProfile::class.java)
+                                publicProfile?.let {
+                                    updateProfileFullName(it.fullName)
+                                    updateProfileCommunityAffiliation(it.community)
+                                }
+                                
+                                val hasPaid = document.getBoolean("hasPaidForPdf") ?: false
+                                if (hasPaid) {
+                                    com.example.network.ApiClient.getSessionManager().saveHasPaidForPdf(true)
+                                    _hasPaidForPdf.value = true
+                                }
+                            }
+                        }
+                        checkComplete()
+                    }
+
+                // Private highly sensitive identity data stored securely in a subcollection
+                com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("private_profile").document("identity").get()
+                    .addOnCompleteListener { task ->
+                        if (task.isSuccessful) {
+                            val document = task.result
+                            if (document != null && document.exists()) {
+                                val privateIdentity = document.toObject(com.example.data.PrivateIdentity::class.java)
+                                privateIdentity?.let {
+                                    updateProfileDob(it.dob)
+                                    updateProfileResidency(it.residency)
+                                    updateProfilePassportNumber(it.passportNumber)
+                                    updateProfileLicenseNumber(it.licenseNumber)
+                                    updateProfileDocType(it.docType)
+                                    updateProfileDocNumber(it.docNumber)
+                                    updateProfileIssuingCountry(it.issuingCountry)
+                                    updateProfileExpiryDate(it.expiryDate)
+                                }
+                            }
+                        }
+                        checkComplete()
+                    }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _isProfileLoading.value = false
             }
         }
     }

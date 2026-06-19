@@ -233,6 +233,7 @@ fun ProfileScreen(
     val cachedPassport by viewModel.profilePassportNumber.collectAsState()
     val cachedLicense by viewModel.profileLicenseNumber.collectAsState()
     val hasPaidForPdf by viewModel.hasPaidForPdf.collectAsState()
+    val isProfileLoading by viewModel.isProfileLoading.collectAsState()
 
     var profileFullName by remember(cachedFullName, displayName) { mutableStateOf(cachedFullName ?: displayName) }
     var profileDateOfBirth by remember(cachedDob) { mutableStateOf(cachedDob ?: "") }
@@ -296,6 +297,7 @@ fun ProfileScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     
     LaunchedEffect(Unit) {
+        viewModel.loadProfileFromFirestore()
         viewModel.syncVerificationStatusFromFirestore()
         viewModel.loadFamilyMembers()
         isAuthenticated = com.example.utils.BiometricHelper.authenticate(context)
@@ -626,26 +628,48 @@ fun ProfileScreen(
                 }
             }
 
-            if (selectedTab == 0) {
+            if (isProfileLoading) {
                 item {
-                    if (isAuthenticated) {
-                        com.example.ui.components.DigitalIdCard(
-                            memberId = memberId,
-                            isVerified = isVerified,
-                            verificationStatus = verificationStatus,
-                            verificationStep = verificationStep,
-                            profilePhotoBase64 = profilePhoto,
-                            cardTheme = cardTheme,
-                            fullName = profileFullName,
-                            dateOfBirth = profileDateOfBirth,
-                            residency = profileResidency,
-                            communityAffiliation = profileCommunityAffiliation,
-                            passportNumber = profilePassport,
-                            licenseNumber = profileLicense,
-                            expiryDate = expiryDate,
-                            language = language,
-                            privacyMode = privacyMode
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(400.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Chargement des données sécurisées...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else {
+                if (selectedTab == 0) {
+                    item {
+                        if (isAuthenticated) {
+                            com.example.ui.components.DigitalIdCard(
+                                memberId = memberId,
+                                isVerified = isVerified,
+                                verificationStatus = verificationStatus,
+                                verificationStep = verificationStep,
+                                profilePhotoBase64 = profilePhoto,
+                                cardTheme = cardTheme,
+                                fullName = profileFullName,
+                                dateOfBirth = profileDateOfBirth,
+                                residency = profileResidency,
+                                communityAffiliation = profileCommunityAffiliation,
+                                passportNumber = profilePassport,
+                                licenseNumber = profileLicense,
+                                expiryDate = expiryDate,
+                                language = language,
+                                privacyMode = privacyMode
+                            )
                         
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
@@ -1064,12 +1088,14 @@ fun ProfileScreen(
                     }
                 }
             }
+            }
         }
     }
 
     if (showVerificationDialog) {
         VerificationWorkflowDialog(
             language = language,
+            viewModel = viewModel,
             onDismiss = { showVerificationDialog = false },
             onVerified = {
                 viewModel.startMockVerification()
@@ -2093,7 +2119,7 @@ fun VerifyIdentityPrompt(language: String, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VerificationWorkflowDialog(language: String, onDismiss: () -> Unit, onVerified: () -> Unit) {
+fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDismiss: () -> Unit, onVerified: () -> Unit) {
     var step by remember { mutableIntStateOf(1) } // 1: Welcome/Info, 2: Doc Details Form, 3: Doc Scan, 4: Selfie, 5: Summary & Consent, 6: Securing Process, 7: Success
     
     // Step 2 Form States
@@ -2121,6 +2147,32 @@ fun VerificationWorkflowDialog(language: String, onDismiss: () -> Unit, onVerifi
     
     LaunchedEffect(step) {
         if (step == 6) {
+            // Securely save the verification details to Firestore
+            viewModel.updateProfileDocType(docType)
+            viewModel.updateProfileDocNumber(docNumber)
+            viewModel.updateProfileIssuingCountry(issuingCountry)
+            
+            val creationTimestamp = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.metadata?.creationTimestamp ?: System.currentTimeMillis()
+            val calendar = java.util.Calendar.getInstance()
+            calendar.timeInMillis = creationTimestamp
+            calendar.add(java.util.Calendar.YEAR, 1)
+            val format = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+            val expDate = format.format(calendar.time)
+            viewModel.updateProfileExpiryDate(expDate)
+
+            viewModel.saveProfileToFirestore(
+                fullName = viewModel.profileFullName.value ?: "",
+                dob = viewModel.profileDob.value ?: "",
+                residency = viewModel.profileResidency.value ?: "",
+                community = viewModel.profileCommunityAffiliation.value ?: "",
+                passportNumber = viewModel.profilePassportNumber.value ?: "",
+                licenseNumber = viewModel.profileLicenseNumber.value ?: "",
+                docType = docType,
+                docNumber = docNumber,
+                issuingCountry = issuingCountry,
+                expiryDate = expDate
+            )
+
             processingLabel = "Chiffrement et transfert des pièces de sécurité..."
             kotlinx.coroutines.delay(1200)
             processingLabel = "Analyse biométrique faciale en cours..."
@@ -3550,11 +3602,135 @@ fun PaymentDialog(
 ) {
     var selectedMethod by remember { mutableStateOf("card") } // "card", "paypal", "crypto"
     var isProcessing by remember { mutableStateOf(false) }
+    var processingPhase by remember { mutableStateOf("") }
     var showPayPalWebView by remember { mutableStateOf(false) }
+
+    // Card details input states
+    var cardName by remember { mutableStateOf("") }
+    var cardNumber by remember { mutableStateOf("") }
+    var cardExpiry by remember { mutableStateOf("") }
+    var cardCvv by remember { mutableStateOf("") }
+
+    // Card input errors
+    var cardNameError by remember { mutableStateOf<String?>(null) }
+    var cardNumberError by remember { mutableStateOf<String?>(null) }
+    var cardExpiryError by remember { mutableStateOf<String?>(null) }
+    var cardCvvError by remember { mutableStateOf<String?>(null) }
+
+    // Crypto details states
+    var cryptoAddressCopied by remember { mutableStateOf(false) }
+    var cryptoTxHash by remember { mutableStateOf("") }
+    var cryptoTxHashError by remember { mutableStateOf<String?>(null) }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Formatting & verification helpers
+    fun formatCardNumber(input: String): String {
+        val clean = input.replace("[^\\d]".toRegex(), "")
+        val sb = StringBuilder()
+        for (i in 0 until clean.length) {
+            if (i > 0 && i % 4 == 0) sb.append(" ")
+            sb.append(clean[i])
+        }
+        return sb.toString().take(19) // Max 16 digits + 3 spaces
+    }
+
+    fun formatExpiry(input: String): String {
+        val clean = input.replace("[^\\d]".toRegex(), "")
+        return if (clean.length >= 2) {
+            clean.substring(0, 2) + "/" + clean.substring(2).take(2)
+        } else {
+            clean
+        }.take(5)
+    }
+
+    fun getCardBrand(num: String): String {
+        val clean = num.replace("\\s".toRegex(), "")
+        return when {
+            clean.startsWith("4") -> "Visa"
+            clean.startsWith("5") || clean.startsWith("2") -> "MasterCard"
+            clean.startsWith("34") || clean.startsWith("37") -> "American Express"
+            else -> "Carte Bancaire"
+        }
+    }
+
+    fun isValidLuhn(number: String): Boolean {
+        val cleanNumber = number.replace("\\s".toRegex(), "")
+        if (cleanNumber.length < 13 || cleanNumber.length > 19) return false
+        var sum = 0
+        var alternate = false
+        for (i in cleanNumber.length - 1 downTo 0) {
+            var n = cleanNumber[i] - '0'
+            if (n < 0 || n > 9) return false
+            if (alternate) {
+                n *= 2
+                if (n > 9) n = (n % 10) + 1
+            }
+            sum += n
+            alternate = !alternate
+        }
+        return sum % 10 == 0
+    }
+
+    fun isValidExpiry(expiry: String): Boolean {
+        val clean = expiry.replace("/", "").replace("\\s".toRegex(), "")
+        if (clean.length != 4) return false
+        val month = clean.substring(0, 2).toIntOrNull() ?: return false
+        val yearSuffix = clean.substring(2, 4).toIntOrNull() ?: return false
+        if (month < 1 || month > 12) return false
+        
+        val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) % 100
+        val currentMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH) + 1
+        if (yearSuffix < currentYear) return false
+        if (yearSuffix == currentYear && month < currentMonth) return false
+        return true
+    }
+
+    fun validateCardForm(): Boolean {
+        var isValid = true
+
+        if (cardName.trim().length < 3) {
+            cardNameError = "Veuillez entrer le nom complet sur la carte."
+            isValid = false
+        } else {
+            cardNameError = null
+        }
+
+        val cleanCard = cardNumber.replace("\\s".toRegex(), "")
+        if (cleanCard.length < 15 || cleanCard.length > 16 || !isValidLuhn(cardNumber)) {
+            cardNumberError = "Numéro de carte invalide (vérification de Luhn échouée)."
+            isValid = false
+        } else {
+            cardNumberError = null
+        }
+
+        if (!isValidExpiry(cardExpiry)) {
+            cardExpiryError = "Date d'expiration invalide (MM/AA, doit être future)."
+            isValid = false
+        } else {
+            cardExpiryError = null
+        }
+
+        val isAmex = getCardBrand(cardNumber) == "American Express"
+        val expectedCvvLength = if (isAmex) 4 else 3
+        if (cardCvv.replace("[^\\d]".toRegex(), "").length != expectedCvvLength) {
+            cardCvvError = "Le CVV doit comporter $expectedCvvLength chiffres."
+            isValid = false
+        } else {
+            cardCvvError = null
+        }
+
+        return isValid
+    }
 
     LaunchedEffect(isProcessing) {
         if (isProcessing) {
-            kotlinx.coroutines.delay(2000)
+            processingPhase = "Vérification cryptographique de la passerelle..."
+            kotlinx.coroutines.delay(1200)
+            processingPhase = "Analyse anti-fraude de la transaction..."
+            kotlinx.coroutines.delay(1200)
+            processingPhase = "Enregistrement sécurisé du justificatif de paiement..."
+            kotlinx.coroutines.delay(1000)
             onPaymentSuccess()
         }
     }
@@ -3584,100 +3760,282 @@ fun PaymentDialog(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Traitement du paiement en cours...")
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = processingPhase,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
                 } else {
-                    Column {
-                        Text(
-                            "Débloquez la génération de votre profil PDF officiel IDMuslim pour 4.99€.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        Text("Moyen de paiement", style = MaterialTheme.typography.labelMedium)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // Card
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedMethod == "card") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                .clickable { selectedMethod = "card" }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            androidx.compose.material3.RadioButton(selected = selectedMethod == "card", onClick = { selectedMethod = "card" })
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(imageVector = Icons.Default.Info, contentDescription = null) // Using Info as fallback for CreditCard
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Carte Bancaire", fontWeight = FontWeight.SemiBold)
-                        }
-                        
-                        // PayPal
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedMethod == "paypal") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                .clickable { selectedMethod = "paypal" }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            androidx.compose.material3.RadioButton(selected = selectedMethod == "paypal", onClick = { selectedMethod = "paypal" })
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null) // Using AccountCircle for PayPal
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("PayPal", fontWeight = FontWeight.SemiBold)
-                        }
-                        
-                        // Crypto
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedMethod == "crypto") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                .clickable { selectedMethod = "crypto" }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            androidx.compose.material3.RadioButton(selected = selectedMethod == "crypto", onClick = { selectedMethod = "crypto" })
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(imageVector = Icons.Default.Security, contentDescription = null) // Using Security for Crypto
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Crypto (BTC, ETH, USDT)", fontWeight = FontWeight.SemiBold)
-                        }
-                        
-                        if (selectedMethod == "card") {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            androidx.compose.material3.OutlinedTextField(
-                                value = "•••• •••• •••• 4242",
-                                onValueChange = {},
-                                label = { Text("Numéro de carte") },
-                                readOnly = true,
-                                modifier = Modifier.fillMaxWidth()
+                    androidx.compose.foundation.lazy.LazyColumn {
+                        item {
+                            Text(
+                                "Débloquez la génération de votre profil PDF officiel IDMuslim pour 4.99€.",
+                                style = MaterialTheme.typography.bodyMedium
                             )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            Text("Moyen de paiement", style = MaterialTheme.typography.labelLarge)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            // Card Selector
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selectedMethod == "card") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .clickable { selectedMethod = "card" }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.RadioButton(selected = selectedMethod == "card", onClick = { selectedMethod = "card" })
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Carte Bancaire", fontWeight = FontWeight.SemiBold)
+                            }
+                            
+                            // PayPal Selector
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selectedMethod == "paypal") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .clickable { selectedMethod = "paypal" }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.RadioButton(selected = selectedMethod == "paypal", onClick = { selectedMethod = "paypal" })
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("PayPal", fontWeight = FontWeight.SemiBold)
+                            }
+                            
+                            // Crypto Selector
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selectedMethod == "crypto") MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                    .clickable { selectedMethod = "crypto" }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.RadioButton(selected = selectedMethod == "crypto", onClick = { selectedMethod = "crypto" })
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(imageVector = Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Crypto (BTC, ETH, USDT)", fontWeight = FontWeight.SemiBold)
+                            }
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+
+                        if (selectedMethod == "card") {
+                            item {
+                                Column {
+                                    // Card Brand Header
+                                    if (cardNumber.isNotEmpty()) {
+                                        Text(
+                                            text = "Marque détectée: ${getCardBrand(cardNumber)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                    }
+
+                                    // Cardholder name input
+                                    OutlinedTextField(
+                                        value = cardName,
+                                        onValueChange = { 
+                                            cardName = it
+                                            cardNameError = null
+                                        },
+                                        label = { Text("Nom complet sur la carte") },
+                                        isError = cardNameError != null,
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    cardNameError?.let {
+                                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
+                                    }
+
+                                    // Card number input
+                                    OutlinedTextField(
+                                        value = cardNumber,
+                                        onValueChange = { 
+                                            cardNumber = formatCardNumber(it)
+                                            cardNumberError = null
+                                        },
+                                        label = { Text("Numéro de carte") },
+                                        isError = cardNumberError != null,
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                        ),
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    cardNumberError?.let {
+                                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 8.dp))
+                                    }
+
+                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                        // Expiry Date input
+                                        Column(modifier = Modifier.weight(1f).padding(end = 6.dp)) {
+                                            OutlinedTextField(
+                                                value = cardExpiry,
+                                                onValueChange = { 
+                                                    cardExpiry = formatExpiry(it)
+                                                    cardExpiryError = null
+                                                },
+                                                label = { Text("Expiration (MM/AA)") },
+                                                isError = cardExpiryError != null,
+                                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                                ),
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            cardExpiryError?.let {
+                                                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+
+                                        // CVV input
+                                        Column(modifier = Modifier.weight(1f).padding(start = 6.dp)) {
+                                            OutlinedTextField(
+                                                value = cardCvv,
+                                                onValueChange = { 
+                                                    cardCvv = it.replace("[^\\d]".toRegex(), "").take(4)
+                                                    cardCvvError = null
+                                                },
+                                                label = { Text("CVV") },
+                                                isError = cardCvvError != null,
+                                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                                ),
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            cardCvvError?.let {
+                                                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         } else if (selectedMethod == "paypal") {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("Vous allez être redirigé vers l'interface sécurisée PayPal.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            item {
+                                Column {
+                                    Text(
+                                        "Vous allez être redirigé vers l'interface sécurisée PayPal officielle ci-dessous.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
+                            }
                         } else if (selectedMethod == "crypto") {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("Le paiement sera effectué via la blockchain de manière sécurisée et anonyme.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            item {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        "Veuillez envoyer exactement 4.99 EUR de crypto à l'adresse sécurisée suivante:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    
+                                    // Bitcoin address showcase
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "bc1qxy2kg3f8pxw69rw0btpnwhh0g30ep58etmxkm",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        IconButton(
+                                            onClick = {
+                                                val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                                val clipData = android.content.ClipData.newPlainText("Bitcoin Address", "bc1qxy2kg3f8pxw69rw0btpnwhh0g30ep58etmxkm")
+                                                clipboardManager.setPrimaryClip(clipData)
+                                                cryptoAddressCopied = true
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (cryptoAddressCopied) Icons.Default.CheckCircle else Icons.Default.Link,
+                                                contentDescription = "Copy",
+                                                tint = if (cryptoAddressCopied) Color(0xFF1B4D3E) else MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    // Enter transaction hash to simulate confirmation checking
+                                    OutlinedTextField(
+                                        value = cryptoTxHash,
+                                        onValueChange = { 
+                                            cryptoTxHash = it.trim()
+                                            cryptoTxHashError = null
+                                        },
+                                        isError = cryptoTxHashError != null,
+                                        label = { Text("ID de transaction (TXID / Hash)") },
+                                        placeholder = { Text("Ex: 5a2efb3... ou entrer pour simuler") },
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    cryptoTxHashError?.let {
+                                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             },
             confirmButton = {
                 if (!isProcessing) {
-                    Button(onClick = { 
-                        if (selectedMethod == "paypal") {
-                            showPayPalWebView = true
-                        } else {
-                            isProcessing = true
+                    Button(
+                        onClick = { 
+                            if (selectedMethod == "paypal") {
+                                showPayPalWebView = true
+                            } else if (selectedMethod == "crypto") {
+                                if (cryptoTxHash.isEmpty()) {
+                                    cryptoTxHashError = "Veuillez entrer le TXID / Hash pour vérification."
+                                } else {
+                                    isProcessing = true
+                                }
+                            } else {
+                                // credit card validation
+                                if (validateCardForm()) {
+                                    isProcessing = true
+                                }
+                            }
                         }
-                    }) {
-                        Text(if (selectedMethod == "paypal") "Payer via PayPal" else if (selectedMethod == "crypto") "Payer en Crypto" else "Payer 4.99€")
+                    ) {
+                        Text(
+                            if (selectedMethod == "paypal") "Lancer PayPal"
+                            else if (selectedMethod == "crypto") "Vérifier la transaction"
+                            else "Payer 4.99€"
+                        )
                     }
                 }
             },

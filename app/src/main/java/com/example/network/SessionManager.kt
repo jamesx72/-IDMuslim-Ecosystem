@@ -25,6 +25,10 @@ class SessionManager(context: Context) {
         private const val KEY_DARK_THEME = "dark_theme"
         private const val KEY_HAS_PAID_PDF = "has_paid_pdf"
         private const val KEY_ID_READY_DISMISSED = "id_ready_dismissed"
+        private const val KEY_DOC_TYPE = "doc_type"
+        private const val KEY_DOC_NUMBER = "doc_number"
+        private const val KEY_ISSUING_COUNTRY = "issuing_country"
+        private const val KEY_EXPIRY_DATE = "expiry_date"
     }
 
     fun saveAuthToken(token: String) {
@@ -159,6 +163,38 @@ class SessionManager(context: Context) {
 
     fun getLicenseNumber(): String? {
         return prefs.getString(KEY_LICENSE_NUMBER, null)
+    }
+
+    fun saveDocType(docType: String) {
+        prefs.edit().putString(KEY_DOC_TYPE, docType).apply()
+    }
+
+    fun getDocType(): String? {
+        return prefs.getString(KEY_DOC_TYPE, null)
+    }
+
+    fun saveDocNumber(docNumber: String) {
+        prefs.edit().putString(KEY_DOC_NUMBER, docNumber).apply()
+    }
+
+    fun getDocNumber(): String? {
+        return prefs.getString(KEY_DOC_NUMBER, null)
+    }
+
+    fun saveIssuingCountry(issuingCountry: String) {
+        prefs.edit().putString(KEY_ISSUING_COUNTRY, issuingCountry).apply()
+    }
+
+    fun getIssuingCountry(): String? {
+        return prefs.getString(KEY_ISSUING_COUNTRY, null)
+    }
+
+    fun saveExpiryDate(expiryDate: String) {
+        prefs.edit().putString(KEY_EXPIRY_DATE, expiryDate).apply()
+    }
+
+    fun getExpiryDate(): String? {
+        return prefs.getString(KEY_EXPIRY_DATE, null)
     }
 
     fun saveHasPaidForPdf(hasPaid: Boolean) {

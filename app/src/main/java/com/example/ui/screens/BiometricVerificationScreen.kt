@@ -60,8 +60,13 @@ fun BiometricVerificationScreen(
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
             AndroidView(
                 factory = { ctx ->
-                    val previewView = PreviewView(ctx)
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                    val attributionContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        ctx.createAttributionContext("camera")
+                    } else {
+                        ctx
+                    }
+                    val previewView = PreviewView(attributionContext)
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(attributionContext)
 
                     cameraProviderFuture.addListener({
                         val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()

@@ -36,7 +36,16 @@ fun MosquesSection() {
     var locationError by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
 
-    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+    val attributionContext = remember(context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            context.createAttributionContext("location")
+        } else {
+            context
+        }
+    }
+    val fusedLocationClient = remember(attributionContext) { 
+        LocationServices.getFusedLocationProviderClient(attributionContext) 
+    }
 
     val fetchMosques = { lat: Double, lng: Double ->
         coroutineScope.launch {
