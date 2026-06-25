@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Help
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -500,6 +502,17 @@ fun ProfileScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val currentTheme by viewModel.darkTheme.collectAsState()
+                    val isDark = currentTheme == "dark" || (currentTheme == "system" && androidx.compose.foundation.isSystemInDarkTheme())
+                    IconButton(
+                        onClick = { viewModel.updateDarkTheme(if (isDark) "light" else "dark") }
+                    ) {
+                        Icon(
+                            imageVector = if (isDark) Icons.Default.WbSunny else Icons.Default.NightsStay,
+                            contentDescription = "Toggle Theme",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     IconButton(
                         onClick = { showNotificationsDialog = true }
                     ) {
@@ -642,24 +655,7 @@ fun ProfileScreen(
 
             if (isProfileLoading) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(400.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Chargement des données sécurisées...",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    com.example.ui.components.DigitalIdCardSkeleton()
                 }
             } else {
                 if (selectedTab == 0) {
@@ -1230,14 +1226,12 @@ fun DigitalCardSection(
                                 color = Color.White,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
-                            if (isVerified) {
-                                com.example.ui.components.DigitalVerifiedBadge(
-                                    isVerified = true,
-                                    memberId = memberId,
-                                    fullName = fullName,
-                                    size = com.example.ui.components.BadgeSize.SMALL
-                                )
-                            }
+                            com.example.ui.components.DigitalVerifiedBadge(
+                                isVerified = isVerified,
+                                memberId = memberId,
+                                fullName = fullName,
+                                size = com.example.ui.components.BadgeSize.SMALL
+                            )
                         }
                     }
                     if (profilePhotoBase64 != null && !privacyMode) {
@@ -2143,11 +2137,70 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
     var docPhotoCaptured by remember { mutableStateOf(false) }
     var isDocScanning by remember { mutableStateOf(false) }
     var docScanProgress by remember { mutableStateOf(0f) }
+    var docImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var tempDocUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    val cameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempDocUri != null) {
+            docImageUri = tempDocUri
+            docPhotoCaptured = true
+            isDocScanning = false
+        } else {
+            isDocScanning = false
+        }
+    }
+    
+    fun launchCamera() {
+        try {
+            val storageDir = java.io.File(context.cacheDir, "images")
+            if (!storageDir.exists()) storageDir.mkdirs()
+            val file = java.io.File.createTempFile("doc_scan_", ".jpg", storageDir)
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            tempDocUri = uri
+            isDocScanning = true
+            cameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            isDocScanning = false
+        }
+    }
     
     // Step 4 Selfie States
     var selfieCaptured by remember { mutableStateOf(false) }
     var isSelfieScanning by remember { mutableStateOf(false) }
     var selfieScanProgress by remember { mutableStateOf(0f) }
+    var selfieImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var tempSelfieUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    
+    val selfieCameraLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempSelfieUri != null) {
+            selfieImageUri = tempSelfieUri
+            selfieCaptured = true
+            isSelfieScanning = false
+        } else {
+            isSelfieScanning = false
+        }
+    }
+    
+    fun launchSelfieCamera() {
+        try {
+            val storageDir = java.io.File(context.cacheDir, "images")
+            if (!storageDir.exists()) storageDir.mkdirs()
+            val file = java.io.File.createTempFile("selfie_scan_", ".jpg", storageDir)
+            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            tempSelfieUri = uri
+            isSelfieScanning = true
+            selfieCameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            isSelfieScanning = false
+        }
+    }
     
     // Step 5 Consent
     var privacyConsentChecked by remember { mutableStateOf(false) }
@@ -2197,29 +2250,9 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
         }
     }
 
-    LaunchedEffect(isDocScanning) {
-        if (isDocScanning) {
-            docScanProgress = 0f
-            while (docScanProgress < 1f) {
-                kotlinx.coroutines.delay(150)
-                docScanProgress += 0.1f
-            }
-            docPhotoCaptured = true
-            isDocScanning = false
-        }
-    }
+    // Removed fake LaunchedEffect(isDocScanning)
 
-    LaunchedEffect(isSelfieScanning) {
-        if (isSelfieScanning) {
-            selfieScanProgress = 0f
-            while (selfieScanProgress < 1f) {
-                kotlinx.coroutines.delay(150)
-                selfieScanProgress += 0.12f
-            }
-            selfieCaptured = true
-            isSelfieScanning = false
-        }
-    }
+    // Removed fake LaunchedEffect(isSelfieScanning)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -2479,22 +2512,33 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                                                 else Color.White.copy(alpha = 0.4f),
                                         shape = RoundedCornerShape(12.dp)
                                     )
+                                    .clip(RoundedCornerShape(12.dp))
                             ) {
                                 if (isDocScanning) {
-                                    // Simulated Green Scanning Bar Animation/Indicator
-                                    LinearProgressIndicator(
-                                        progress = { docScanProgress },
-                                        color = Color.Green,
-                                        trackColor = Color.Transparent,
-                                        modifier = Modifier.fillMaxWidth().align(Alignment.Center)
+                                    Column(
+                                        modifier = Modifier.align(Alignment.Center),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        androidx.compose.material3.CircularProgressIndicator(color = Color.White)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "Ouverture de la caméra...",
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    }
+                                } else if (docPhotoCaptured && docImageUri != null) {
+                                    coil.compose.AsyncImage(
+                                        model = docImageUri,
+                                        contentDescription = "Document scanné",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                     )
-                                    Text(
-                                        text = "Analyse en cours...",
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = 0.3f))
                                     )
-                                } else if (docPhotoCaptured) {
                                     Column(
                                         modifier = Modifier.align(Alignment.Center),
                                         horizontalAlignment = Alignment.CenterHorizontally
@@ -2538,7 +2582,7 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                     
                     // Scan Actions
                     Button(
-                        onClick = { isDocScanning = true },
+                        onClick = { launchCamera() },
                         enabled = !isDocScanning,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
@@ -2547,7 +2591,7 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                     ) {
                         Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (docPhotoCaptured) "Reprendre la photo du document" else "Lancer la capture caméra (Simulée)")
+                        Text(if (docPhotoCaptured) "Reprendre la photo du document" else "Lancer la capture caméra")
                     }
                     
                     Spacer(modifier = Modifier.height(32.dp))
@@ -2606,19 +2650,30 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                         contentAlignment = Alignment.Center
                     ) {
                         if (isSelfieScanning) {
-                            CircularProgressIndicator(
-                                progress = { selfieScanProgress },
-                                color = Color.Green,
-                                trackColor = Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.size(120.dp)
+                            Column(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator(color = Color.White)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Ouverture de la caméra...",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        } else if (selfieCaptured && selfieImageUri != null) {
+                            coil.compose.AsyncImage(
+                                model = selfieImageUri,
+                                contentDescription = "Selfie",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
                             )
-                            Text(
-                                text = "Ajustement...",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.3f))
                             )
-                        } else if (selfieCaptured) {
                             Column(
                                 modifier = Modifier.align(Alignment.Center),
                                 horizontalAlignment = Alignment.CenterHorizontally
@@ -2661,7 +2716,7 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Button(
-                        onClick = { isSelfieScanning = true },
+                        onClick = { launchSelfieCamera() },
                         enabled = !isSelfieScanning,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
@@ -2670,7 +2725,7 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                     ) {
                         Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (selfieCaptured) "Reprendre le selfie" else "Capturer mon selfie (Simulé)")
+                        Text(if (selfieCaptured) "Reprendre le selfie" else "Capturer mon selfie")
                     }
                     
                     Spacer(modifier = Modifier.height(32.dp))

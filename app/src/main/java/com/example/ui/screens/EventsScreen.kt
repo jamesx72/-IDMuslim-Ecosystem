@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +66,18 @@ fun EventsScreen(
             Column {
                 TopAppBar(
                     title = { Text("Communauté") },
+                    actions = {
+                        val currentTheme by viewModel.darkTheme.collectAsState()
+                        val isDark = currentTheme == "dark" || (currentTheme == "system" && androidx.compose.foundation.isSystemInDarkTheme())
+                        androidx.compose.material3.IconButton(
+                            onClick = { viewModel.updateDarkTheme(if (isDark) "light" else "dark") }
+                        ) {
+                            Icon(
+                                imageVector = if (isDark) Icons.Default.WbSunny else Icons.Default.NightsStay,
+                                contentDescription = "Toggle Theme"
+                            )
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background,
                         titleContentColor = MaterialTheme.colorScheme.onBackground

@@ -123,6 +123,140 @@ fun SettingsScreen(
 
             // Theme Section
             Text(
+                text = Translations.get(language, "security_mfa") ?: "Sécurité & MFA",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            var showMfaEnrollment by remember { mutableStateOf(false) }
+            val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+            val user = auth.currentUser
+            val isMfaEnrolled = remember(user) { user?.multiFactor?.enrolledFactors?.isNotEmpty() == true }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) // Used Settings icon as placeholder
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(Translations.get(language, "mfa_enrollment") ?: "Authentification 2 facteurs (A2F)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(if (isMfaEnrolled) "Activé" else "Désactivé", style = MaterialTheme.typography.bodyMedium, color = if (isMfaEnrolled) androidx.compose.ui.graphics.Color(0xFF10B981) else MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    Button(onClick = { showMfaEnrollment = true }, enabled = !isMfaEnrolled && user != null) {
+                        Text(if (isMfaEnrolled) "Configuré" else "Activer")
+                    }
+                }
+            }
+
+            if (showMfaEnrollment && user != null) {
+                var phoneNumber by remember { mutableStateOf("") }
+                var mfaVerificationId by remember { mutableStateOf<String?>(null) }
+                var mfaCode by remember { mutableStateOf("") }
+                var mfaError by remember { mutableStateOf<String?>(null) }
+                val context = androidx.compose.ui.platform.LocalContext.current
+
+                AlertDialog(
+                    onDismissRequest = { showMfaEnrollment = false },
+                    title = { Text("Configuration A2F (SMS)") },
+                    text = {
+                        Column {
+                            if (mfaError != null) {
+                                Text(mfaError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            if (mfaVerificationId == null) {
+                                Text("Entrez votre numéro de téléphone (avec l'indicatif, ex: +33612345678) pour recevoir les codes de vérification.")
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = phoneNumber,
+                                    onValueChange = { phoneNumber = it },
+                                    label = { Text("Numéro de téléphone") },
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            } else {
+                                Text("Entrez le code SMS reçu.")
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = mfaCode,
+                                    onValueChange = { mfaCode = it },
+                                    label = { Text("Code SMS") },
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            if (mfaVerificationId == null) {
+                                if (phoneNumber.isNotBlank()) {
+                                    mfaError = null
+                                    user.multiFactor.session.addOnCompleteListener { sessionTask ->
+                                        if (sessionTask.isSuccessful) {
+                                            val session = sessionTask.result
+                                            val options = com.google.firebase.auth.PhoneAuthOptions.newBuilder(auth)
+                                                .setPhoneNumber(phoneNumber)
+                                                .setTimeout(60L, java.util.concurrent.TimeUnit.SECONDS)
+                                                .setActivity(context as android.app.Activity)
+                                                .setMultiFactorSession(session)
+                                                .setCallbacks(object : com.google.firebase.auth.PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                                                    override fun onVerificationCompleted(credential: com.google.firebase.auth.PhoneAuthCredential) {}
+                                                    override fun onVerificationFailed(e: com.google.firebase.FirebaseException) {
+                                                        mfaError = e.localizedMessage
+                                                    }
+                                                    override fun onCodeSent(verificationId: String, token: com.google.firebase.auth.PhoneAuthProvider.ForceResendingToken) {
+                                                        mfaVerificationId = verificationId
+                                                    }
+                                                })
+                                                .build()
+                                            com.google.firebase.auth.PhoneAuthProvider.verifyPhoneNumber(options)
+                                        } else {
+                                            mfaError = sessionTask.exception?.localizedMessage
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (mfaCode.isNotBlank()) {
+                                    val credential = com.google.firebase.auth.PhoneAuthProvider.getCredential(mfaVerificationId!!, mfaCode)
+                                    val assertion = com.google.firebase.auth.PhoneMultiFactorGenerator.getAssertion(credential)
+                                    user.multiFactor.enroll(assertion, "Mon Téléphone").addOnCompleteListener { enrollTask ->
+                                        if (enrollTask.isSuccessful) {
+                                            showMfaEnrollment = false
+                                            // Ideally we should force recomposition of the parent
+                                        } else {
+                                            mfaError = enrollTask.exception?.localizedMessage
+                                        }
+                                    }
+                                }
+                            }
+                        }) {
+                            Text(if (mfaVerificationId == null) "Envoyer le SMS" else "Valider")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showMfaEnrollment = false }) {
+                            Text("Annuler")
+                        }
+                    }
+                )
+            }
+
+            // Theme Section
+            Text(
                 text = Translations.get(language, "card_theme"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,

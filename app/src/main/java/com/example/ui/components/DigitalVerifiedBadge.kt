@@ -55,7 +55,7 @@ fun DigitalVerifiedBadge(
         )
     } else {
         Brush.linearGradient(
-            colors = listOf(Color(0xFF9CA3AF), Color(0xFF4B5563)) // Neat Slate Gray
+            colors = listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8)) // Vivid Blue for Authenticated
         )
     }
 
@@ -67,10 +67,10 @@ fun DigitalVerifiedBadge(
                 .clickable { showDetailsDialog = true }
                 .padding(2.dp),
             shape = RoundedCornerShape(12.dp),
-            color = if (isVerified) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFF9CA3AF).copy(alpha = 0.15f),
+            color = if (isVerified) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFF3B82F6).copy(alpha = 0.15f),
             border = BorderStroke(
                 width = 1.dp,
-                color = if (isVerified) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF9CA3AF).copy(alpha = 0.5f)
+                color = if (isVerified) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF3B82F6).copy(alpha = 0.5f)
             )
         ) {
             Row(
@@ -85,7 +85,7 @@ fun DigitalVerifiedBadge(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isVerified) Icons.Default.CheckCircle else Icons.Default.Info,
+                        imageVector = Icons.Default.CheckCircle,
                         contentDescription = "Badge",
                         tint = Color.White,
                         modifier = Modifier.size(10.dp)
@@ -93,8 +93,8 @@ fun DigitalVerifiedBadge(
                 }
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (isVerified) "VÉRIFIÉ" else "NON VÉRIFIÉ",
-                    color = if (isVerified) Color(0xFF34D399) else Color(0xFF9CA3AF),
+                    text = if (isVerified) "VÉRIFIÉ" else "AUTHENTIFIÉ",
+                    color = if (isVerified) Color(0xFF34D399) else Color(0xFF60A5FA),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp
@@ -133,7 +133,7 @@ fun DigitalVerifiedBadge(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (isVerified) Icons.Default.CheckCircle else Icons.Default.Security,
+                            imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Status Logo",
                             tint = Color.White,
                             modifier = Modifier.size(24.dp)
@@ -142,15 +142,15 @@ fun DigitalVerifiedBadge(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(
-                            text = if (isVerified) "BADGE CITOYEN VÉRIFIÉ" else "VÉRIFICATION INITIALE REQUIS",
+                            text = if (isVerified) "BADGE CITOYEN VÉRIFIÉ" else "COMPTE AUTHENTIFIÉ",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isVerified) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            color = if (isVerified) Color(0xFF10B981) else Color(0xFF3B82F6),
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = if (isVerified) "Identité numérique confirmée & scellée" else "Terminez les étapes d'accréditation",
+                            text = if (isVerified) "Identité numérique confirmée & scellée" else "Connecté de manière sécurisée",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface
@@ -161,16 +161,16 @@ fun DigitalVerifiedBadge(
                 Box(
                     modifier = Modifier
                         .background(
-                            if (isVerified) Color(0xFF10B981).copy(alpha = 0.1f) else Color(0xFF9CA3AF).copy(alpha = 0.1f),
+                            if (isVerified) Color(0xFF10B981).copy(alpha = 0.1f) else Color(0xFF3B82F6).copy(alpha = 0.1f),
                             RoundedCornerShape(8.dp)
                         )
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = "VOIR PROUVÉ",
+                        text = "VOIR DÉTAILS",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (isVerified) Color(0xFF10B981) else Color(0xFF9CA3AF)
+                        color = if (isVerified) Color(0xFF10B981) else Color(0xFF3B82F6)
                     )
                 }
             }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,12 +35,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.locales.Translations
 import kotlinx.coroutines.isActive
-
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.filled.Warning
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 
 @Composable
 fun DigitalIdCard(
@@ -204,14 +206,12 @@ fun DigitalIdCard(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (isVerified) {
-                                DigitalVerifiedBadge(
-                                    isVerified = true,
-                                    memberId = memberId,
-                                    fullName = fullName,
-                                    size = BadgeSize.SMALL
-                                )
-                            }
+                            DigitalVerifiedBadge(
+                                isVerified = isVerified,
+                                memberId = memberId,
+                                fullName = fullName,
+                                size = BadgeSize.SMALL
+                            )
                         }
                     }
                     
@@ -302,21 +302,45 @@ fun DigitalIdCard(
                         }
                     }
                     
-                    // Decorative/Functional Barcode or QR
+                    // Small QR code for quick scan
+                    val smallQrBitmap = remember(memberId) {
+                        try {
+                            val payload = "IDMUSLIM:$memberId"
+                            val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 200, 200)
+                            val bitmap = Bitmap.createBitmap(200, 200, Bitmap.Config.RGB_565)
+                            for (x in 0 until 200) {
+                                for (y in 0 until 200) {
+                                    bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                                }
+                            }
+                            bitmap.asImageBitmap()
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .size(50.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.1f))
-                            .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                            .background(Color.White)
+                            .padding(2.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCode2,
-                            contentDescription = "QR Code",
-                            tint = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.size(36.dp)
-                        )
+                        if (smallQrBitmap != null) {
+                            Image(
+                                bitmap = smallQrBitmap,
+                                contentDescription = "QR Code",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.QrCode2,
+                                contentDescription = "QR Code",
+                                tint = Color.Black.copy(alpha = 0.9f),
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -350,13 +374,48 @@ fun DigitalIdCard(
                     
                     Spacer(modifier = Modifier.weight(1f))
                     
-                    // Decorative barcode for the back
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp)
-                            .background(Color.White.copy(alpha = 0.3f))
-                    )
+                    // QR Code on the back for quick verification
+                    val qrBitmap = remember(memberId) {
+                        try {
+                            val payload = "IDMUSLIM:$memberId"
+                            val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 400, 400)
+                            val bitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.RGB_565)
+                            for (x in 0 until 400) {
+                                for (y in 0 until 400) {
+                                    bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                                }
+                            }
+                            bitmap.asImageBitmap()
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    
+                    if (qrBitmap != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = qrBitmap,
+                                contentDescription = "QR Code Verification",
+                                modifier = Modifier
+                                    .size(90.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White)
+                                    .padding(4.dp)
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .background(Color.White.copy(alpha = 0.3f))
+                        )
+                    }
                 }
             }
         }
@@ -384,5 +443,102 @@ fun IdField(label: String, value: String, isMonospace: Boolean = false, textColo
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@Composable
+fun DigitalIdCardSkeleton(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val shimmerAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .aspectRatio(1.586f),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.linearGradient(
+                    colors = listOf(Color(0xFF374151), Color(0xFF1F2937))
+                ))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+            ) {
+                // Header (Logo and Title)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.size(16.dp).clip(CircleShape).background(Color.White.copy(alpha = shimmerAlpha)))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(modifier = Modifier.height(14.dp).width(120.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(4.dp)))
+                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(modifier = Modifier.height(28.dp).width(160.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(4.dp)))
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(modifier = Modifier.height(16.dp).width(180.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(4.dp)))
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(modifier = Modifier.height(24.dp).width(80.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(12.dp)))
+                    }
+                    
+                    // Profile photo skeleton
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = shimmerAlpha))
+                    )
+                }
+                
+                Spacer(modifier = Modifier.weight(1f))
+                
+                // Footer (ID & Dates)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Box(modifier = Modifier.height(12.dp).width(50.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(4.dp)))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(modifier = Modifier.height(16.dp).width(90.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(4.dp)))
+                    }
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Box(modifier = Modifier.height(12.dp).width(60.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(4.dp)))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(modifier = Modifier.height(16.dp).width(80.dp).background(Color.White.copy(alpha = shimmerAlpha), RoundedCornerShape(4.dp)))
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = shimmerAlpha)))
+                    }
+                }
+            }
+        }
     }
 }

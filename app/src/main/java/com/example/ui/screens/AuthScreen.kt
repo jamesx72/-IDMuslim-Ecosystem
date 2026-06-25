@@ -62,6 +62,11 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var successMessage by remember { mutableStateOf<String?>(null) }
 
+    var mfaResolver by remember { mutableStateOf<com.google.firebase.auth.MultiFactorResolver?>(null) }
+    var mfaVerificationId by remember { mutableStateOf<String?>(null) }
+    var mfaCode by remember { mutableStateOf("") }
+    var showMfaDialog by remember { mutableStateOf(false) }
+
     val auth = FirebaseAuth.getInstance()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -561,7 +566,11 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                                                     }
                                                 } else {
                                                     val exceptionMessage = task.exception?.localizedMessage ?: "Connexion échouée."
-                                                    if (exceptionMessage.contains("api key", ignoreCase = true) || exceptionMessage.contains("clé api", ignoreCase = true) || exceptionMessage.contains("not valid", ignoreCase = true)) {
+                                                    val exception = task.exception
+                                                    if (exception is com.google.firebase.auth.FirebaseAuthMultiFactorException) {
+                                                        mfaResolver = exception.resolver
+                                                        showMfaDialog = true
+                                                    } else if (exceptionMessage.contains("api key", ignoreCase = true) || exceptionMessage.contains("clé api", ignoreCase = true) || exceptionMessage.contains("not valid", ignoreCase = true)) {
                                                         // Try logging in with local storage
                                                         val session = ApiClient.getSessionManager()
                                                         if (session.verifyLocalCredential(email, password)) {
@@ -696,5 +705,91 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (showMfaDialog && mfaResolver != null) {
+        AlertDialog(
+            onDismissRequest = { showMfaDialog = false },
+            title = { Text(Translations.get(language, "mfa_verification_title") ?: "Vérification en deux étapes") },
+            text = {
+                Column {
+                    Text(Translations.get(language, "mfa_verification_desc") ?: "Veuillez entrer le code SMS envoyé à votre numéro de téléphone.")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = mfaCode,
+                        onValueChange = { mfaCode = it },
+                        label = { Text(Translations.get(language, "mfa_verification_code") ?: "Code de vérification") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = {
+                            val hint = mfaResolver!!.hints.firstOrNull() as? com.google.firebase.auth.PhoneMultiFactorInfo
+                            if (hint != null) {
+                                val options = com.google.firebase.auth.PhoneAuthOptions.newBuilder(auth)
+                                    .setMultiFactorHint(hint)
+                                    .setMultiFactorSession(mfaResolver!!.session)
+                                    .setCallbacks(object : com.google.firebase.auth.PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                                        override fun onVerificationCompleted(credential: com.google.firebase.auth.PhoneAuthCredential) {}
+                                        override fun onVerificationFailed(e: com.google.firebase.FirebaseException) {
+                                            errorMessage = e.message
+                                        }
+                                        override fun onCodeSent(verificationId: String, token: com.google.firebase.auth.PhoneAuthProvider.ForceResendingToken) {
+                                            mfaVerificationId = verificationId
+                                        }
+                                    })
+                                    .setActivity(context as android.app.Activity)
+                                    .build()
+                                com.google.firebase.auth.PhoneAuthProvider.verifyPhoneNumber(options)
+                            } else {
+                                errorMessage = "Aucun numéro de téléphone disponible."
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text(Translations.get(language, "mfa_send_code") ?: "Envoyer le code")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (mfaVerificationId != null && mfaCode.isNotBlank()) {
+                            isLoading = true
+                            showMfaDialog = false
+                            val credential = com.google.firebase.auth.PhoneAuthProvider.getCredential(mfaVerificationId!!, mfaCode)
+                            val assertion = com.google.firebase.auth.PhoneMultiFactorGenerator.getAssertion(credential)
+                            mfaResolver!!.resolveSignIn(assertion).addOnCompleteListener { resolveTask ->
+                                isLoading = false
+                                if (resolveTask.isSuccessful) {
+                                    val user = auth.currentUser
+                                    user?.getIdToken(true)?.addOnCompleteListener { tokenTask ->
+                                        if (tokenTask.isSuccessful) {
+                                            val token = tokenTask.result.token ?: ""
+                                            ApiClient.getSessionManager().saveAuthToken(token)
+                                        }
+                                    }
+                                    ApiClient.getSessionManager().saveUserEmail(email)
+                                    successMessage = "Connexion réussie avec MFA!"
+                                    onAuthSuccess()
+                                } else {
+                                    errorMessage = resolveTask.exception?.localizedMessage ?: "Erreur MFA"
+                                }
+                            }
+                        } else {
+                            errorMessage = "Veuillez envoyer le code et le saisir."
+                        }
+                    }
+                ) {
+                    Text(Translations.get(language, "verify") ?: "Vérifier")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMfaDialog = false }) {
+                    Text(Translations.get(language, "cancel") ?: "Annuler")
+                }
+            }
+        )
     }
 }
