@@ -91,7 +91,13 @@ object Translations {
                 "copy_sig" to "Copier la Signature",
                 "active_certificates" to "Justificatifs Actifs (Garantis)",
                 "authorized_by" to "Autorisé par la technologie IDMuslim Shield",
-                "level_emerald" to "Niveau Émeraude (Vérifié Sécurisé)"
+                "level_emerald" to "Niveau Émeraude (Vérifié Sécurisé)",
+                "faith_declaration" to "Sache donc qu’en vérité il n’y a point de divinité à part Allah",
+                "expiry" to "EXPIRATION",
+                "gov_info" to "INFORMATIONS GOUVERNEMENTALES",
+                "passport_num" to "Numéro de Passeport",
+                "license_num" to "Numéro de Permis",
+                "hidden_field" to "••••••"
             ),
             "en" to mapOf(
                 "identity_card" to "IDENTITY CARD",
@@ -127,7 +133,13 @@ object Translations {
                 "copy_sig" to "Copy Signature",
                 "active_certificates" to "Active Credentials (Guaranteed)",
                 "authorized_by" to "Authorized by IDMuslim Shield Technology",
-                "level_emerald" to "Emerald Class (Secured & Verified)"
+                "level_emerald" to "Emerald Class (Secured & Verified)",
+                "faith_declaration" to "Know therefore that there is no god but Allah",
+                "expiry" to "EXPIRY",
+                "gov_info" to "GOVERNMENT INFORMATION",
+                "passport_num" to "Passport Number",
+                "license_num" to "License Number",
+                "hidden_field" to "••••••"
             ),
             "ar" to mapOf(
                 "identity_card" to "بطاقة الهوية",

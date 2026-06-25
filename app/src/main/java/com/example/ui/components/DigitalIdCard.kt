@@ -32,7 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.screens.Translations
+import com.example.ui.locales.Translations
 import kotlinx.coroutines.isActive
 
 import java.text.SimpleDateFormat
@@ -247,7 +247,7 @@ fun DigitalIdCard(
                 Spacer(modifier = Modifier.weight(1f))
                 
                 Text(
-                    text = "Sache donc qu’en vérité il n’y a point de divinité à part Allah",
+                    text = Translations.get(language, "shahada_text"),
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White.copy(alpha = 0.9f),
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
@@ -284,7 +284,7 @@ fun DigitalIdCard(
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IdField(
-                                    label = "EXPIRY",
+                                    label = Translations.get(language, "expiry_date"),
                                     value = expiryDate,
                                     isMonospace = true,
                                     textColor = if (isExpiringSoon) Color(0xFFFF6B6B) else Color.White
@@ -328,7 +328,7 @@ fun DigitalIdCard(
                         .graphicsLayer { rotationY = 180f }
                 ) {
                     Text(
-                        text = "INFORMATIONS GOUVERNEMENTALES",
+                        text = Translations.get(language, "gov_info"),
                         style = MaterialTheme.typography.labelMedium,
                         color = Color.White.copy(alpha = 0.8f),
                         letterSpacing = 1.5.sp,
@@ -337,14 +337,14 @@ fun DigitalIdCard(
                     )
                     
                     IdField(
-                        label = "Numéro de Passeport",
+                        label = Translations.get(language, "passport_number"),
                         value = if (privacyMode) Translations.get(language, "hidden_field") else passportNumber?.ifEmpty { "--" } ?: "--"
                     )
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     IdField(
-                        label = "Numéro de Permis",
+                        label = Translations.get(language, "license_number"),
                         value = if (privacyMode) Translations.get(language, "hidden_field") else licenseNumber?.ifEmpty { "--" } ?: "--"
                     )
                     

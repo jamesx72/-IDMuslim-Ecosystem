@@ -164,7 +164,11 @@ object Translations {
                 "forum_auth_required" to "Veuillez vérifier votre identité pour accéder au forum.",
                 "post_title" to "Titre",
                 "post_content" to "Message...",
-                "add_post" to "Publier"
+                "add_post" to "Publier",
+                "shahada_text" to "Sache donc qu’en vérité il n’y a point de divinité à part Allah",
+                "gov_info" to "INFORMATIONS GOUVERNEMENTALES",
+                "passport_number" to "Numéro de Passeport",
+                "license_number" to "Numéro de Permis"
             ),
             "en" to mapOf(
                 "identity_card" to "IDENTITY CARD",
@@ -327,7 +331,11 @@ object Translations {
                 "forum_auth_required" to "Please verify your identity to access the forum.",
                 "post_title" to "Title",
                 "post_content" to "Message...",
-                "add_post" to "Post"
+                "add_post" to "Post",
+                "shahada_text" to "Know, therefore, that there is no deity but Allah",
+                "gov_info" to "GOVERNMENT INFORMATION",
+                "passport_number" to "Passport Number",
+                "license_number" to "License Number"
             ),
             "ar" to mapOf(
                 "identity_card" to "بطاقة الهوية",
@@ -486,7 +494,11 @@ object Translations {
                 "forum_auth_required" to "يرجى التحقق من هويتك للوصول إلى المنتدى.",
                 "post_title" to "العنوان",
                 "post_content" to "رسالة...",
-                "add_post" to "نشر"
+                "add_post" to "نشر",
+                "shahada_text" to "فاعلم أنه لا إله إلا الله",
+                "gov_info" to "المعلومات الحكومية",
+                "passport_number" to "رقم الجواز",
+                "license_number" to "رقم الرخصة"
             ),
             "es" to mapOf(
                 "identity_card" to "TARJETA DE IDENTIDAD",
@@ -498,7 +510,11 @@ object Translations {
                 "language" to "Idioma",
                 "save" to "Guardar",
                 "edit" to "Editar",
-                "logout" to "Cerrar sesión"
+                "logout" to "Cerrar sesión",
+                "shahada_text" to "Sabe, pues, que no hay más dios que Alá",
+                "gov_info" to "INFORMACIÓN GUBERNAMENTAL",
+                "passport_number" to "Número de Pasaporte",
+                "license_number" to "Número de Licencia"
             ),
             "id" to mapOf(
                 "identity_card" to "KARTU IDENTITAS",
@@ -510,7 +526,11 @@ object Translations {
                 "language" to "Bahasa",
                 "save" to "Simpan",
                 "edit" to "Edit",
-                "logout" to "Keluar"
+                "logout" to "Keluar",
+                "shahada_text" to "Maka ketahuilah, bahwa sesungguhnya tidak ada Tuhan (Yang Hak) melainkan Allah",
+                "gov_info" to "INFORMASI PEMERINTAH",
+                "passport_number" to "Nomor Paspor",
+                "license_number" to "Nomor Lisensi"
             )
         )
         return strings[lang]?.get(key) ?: strings["en"]?.get(key) ?: key
