@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Nfc
@@ -372,9 +374,9 @@ fun ProfileScreen(
                 squaredBitmap = squaredBitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
             }
             
-            val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(squaredBitmap, 400, 400, true)
+            val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(squaredBitmap, 800, 800, true)
             val outputStream = java.io.ByteArrayOutputStream()
-            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, outputStream)
+            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, outputStream)
             val base64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
             viewModel.updateProfilePhoto(base64)
         } catch (e: Exception) {
@@ -676,14 +678,17 @@ fun ProfileScreen(
                                 licenseNumber = profileLicense,
                                 expiryDate = expiryDate,
                                 language = language,
-                                privacyMode = privacyMode
+                                privacyMode = privacyMode,
+                                onPhotoClick = { showPhotoMenu = true }
                             )
                         
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            OutlinedButton(
+                            DashboardActionCard(
+                                icon = Icons.Default.AccountBalanceWallet,
+                                title = Translations.get(language, "add_to_wallet"),
                                 onClick = {
                                     try {
                                         val passFile = com.example.utils.PassGenerator.generatePkPass(
@@ -706,7 +711,6 @@ fun ProfileScreen(
                                             context.startActivity(intent)
                                             android.widget.Toast.makeText(context, Translations.get(language, "wallet_export_success"), android.widget.Toast.LENGTH_SHORT).show()
                                         } else {
-                                            // Fallback to sharing the file
                                             val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                                 type = "application/vnd.apple.pkpass"
                                                 putExtra(android.content.Intent.EXTRA_STREAM, uri)
@@ -719,13 +723,11 @@ fun ProfileScreen(
                                     }
                                 },
                                 modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(Translations.get(language, "add_to_wallet"), fontSize = 12.sp)
-                            }
+                            )
                             
-                            OutlinedButton(
+                            DashboardActionCard(
+                                icon = Icons.Default.Event,
+                                title = Translations.get(language, "add_to_calendar"),
                                 onClick = {
                                     try {
                                         val format = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
@@ -747,16 +749,13 @@ fun ProfileScreen(
                                     }
                                 },
                                 modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(imageVector = Icons.Default.Event, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(Translations.get(language, "add_to_calendar"), fontSize = 12.sp)
-                            }
+                            )
                         }
                         
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        OutlinedButton(
+                        DashboardActionCard(
+                            icon = Icons.Default.PictureAsPdf,
+                            title = "Télécharger PDF (Premium)",
+                            subtitle = "Générez un certificat certifié au format PDF",
                             onClick = {
                                 if (hasPaidForPdf) {
                                     com.example.utils.PdfGenerator.generatePdf(
@@ -773,12 +772,9 @@ fun ProfileScreen(
                                     showPaymentDialog = true
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Télécharger PDF (Premium)", fontSize = 14.sp)
-                        }
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+                        )
+
 
                     } else {
                         val coroutineScope = rememberCoroutineScope()
@@ -886,6 +882,10 @@ fun ProfileScreen(
                 
                 item {
                     com.example.ui.components.MosquesSection()
+                }
+
+                item {
+                    com.example.ui.components.TasbihCounter(language = language)
                 }
                 
                 item {
@@ -2565,14 +2565,21 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                                         Icon(
                                             imageVector = Icons.Default.CameraAlt,
                                             contentDescription = "Camera placeholder",
-                                            tint = Color.White.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(32.dp)
+                                            tint = Color.White.copy(alpha = 0.9f),
+                                            modifier = Modifier.size(48.dp)
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.height(12.dp))
                                         Text(
-                                            text = "Cadre de prévisualisation",
+                                            text = "Alignez votre document dans le cadre",
+                                            color = Color.White.copy(alpha = 0.9f),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "Appuyez sur le bouton ci-dessous pour capturer",
                                             color = Color.White.copy(alpha = 0.7f),
-                                            style = MaterialTheme.typography.labelMedium
+                                            style = MaterialTheme.typography.bodyMedium
                                         )
                                     }
                                 }
@@ -2698,16 +2705,23 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Info,
-                                    contentDescription = "Selfie guide",
-                                    tint = Color.White.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(36.dp)
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Selfie placeholder",
+                                    tint = Color.White.copy(alpha = 0.9f),
+                                    modifier = Modifier.size(48.dp)
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Cliquer pour capturer",
-                                    color = Color.White.copy(alpha = 0.6f),
-                                    style = MaterialTheme.typography.labelSmall
+                                    text = "Centrez votre visage",
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Appuyez sur le bouton pour capturer",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
                             }
                         }
@@ -4626,6 +4640,53 @@ fun VerificationFaqDialog(onDismiss: () -> Unit) {
                         Text("Envoyer")
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun DashboardActionCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String? = null,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            if (subtitle != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
             }
         }
     }

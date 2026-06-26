@@ -137,15 +137,46 @@ fun MosquesSection() {
             } else {
                 mosques!!.forEach { place ->
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        onClick = {
+                            val uri = if (place.location != null) {
+                                android.net.Uri.parse("geo:${place.location.latitude},${place.location.longitude}?q=${android.net.Uri.encode(place.displayName?.text ?: place.formattedAddress ?: "")}")
+                            } else if (!place.formattedAddress.isNullOrEmpty()) {
+                                android.net.Uri.parse("geo:0,0?q=${android.net.Uri.encode(place.formattedAddress)}")
+                            } else null
+                            
+                            uri?.let {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, it)
+                                intent.setPackage("com.google.android.apps.maps")
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // Fallback if Google Maps app is not installed
+                                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, it))
+                                }
+                            }
+                        },
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(place.displayName?.text ?: "Mosquée inconnue", fontWeight = FontWeight.Bold)
-                            if (!place.formattedAddress.isNullOrEmpty()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(place.formattedAddress, style = MaterialTheme.typography.bodySmall)
+                        Row(
+                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(place.displayName?.text ?: "Mosquée inconnue", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                if (!place.formattedAddress.isNullOrEmpty()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(place.formattedAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
+                            Icon(
+                                imageVector = Icons.Default.Place,
+                                contentDescription = "S'y rendre",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
                         }
                     }
                 }

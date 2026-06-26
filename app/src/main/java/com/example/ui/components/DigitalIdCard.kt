@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -60,6 +61,7 @@ fun DigitalIdCard(
     expiryDate: String,
     language: String,
     privacyMode: Boolean = false,
+    onPhotoClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val themeColors = when (cardTheme) {
@@ -216,24 +218,47 @@ fun DigitalIdCard(
                     }
                     
                     // Profile Image
-                    if (profilePhotoBase64 != null && !privacyMode) {
+                    if (!privacyMode) {
                         var decodedBitmap: Bitmap? = null
-                        try {
-                            val decodedString = android.util.Base64.decode(profilePhotoBase64, android.util.Base64.DEFAULT)
-                            decodedBitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.size)
-                        } catch (e: Exception) {
-                            // Suppress error
+                        if (profilePhotoBase64 != null) {
+                            try {
+                                val decodedString = android.util.Base64.decode(profilePhotoBase64, android.util.Base64.DEFAULT)
+                                decodedBitmap = android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.size)
+                            } catch (e: Exception) {
+                                // Suppress error
+                            }
                         }
-                        if (decodedBitmap != null) {
-                            Image(
-                                bitmap = decodedBitmap.asImageBitmap(),
-                                contentDescription = "Profile Photo",
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
-                                contentScale = ContentScale.Crop
-                            )
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(86.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .clickable(enabled = onPhotoClick != null) { onPhotoClick?.invoke() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (decodedBitmap != null) {
+                                Image(
+                                    bitmap = decodedBitmap.asImageBitmap(),
+                                    contentDescription = "Profile Photo",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.White.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AddAPhoto,
+                                        contentDescription = "Add Photo",
+                                        tint = Color.White.copy(alpha = 0.8f),
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
                         }
                     } else {
                         VerificationStatusBadge(
@@ -305,7 +330,7 @@ fun DigitalIdCard(
                     // Small QR code for quick scan
                     val smallQrBitmap = remember(memberId) {
                         try {
-                            val payload = "IDMUSLIM:$memberId"
+                            val payload = "https://idmuslim.org/verify/$memberId"
                             val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 200, 200)
                             val bitmap = Bitmap.createBitmap(200, 200, Bitmap.Config.RGB_565)
                             for (x in 0 until 200) {
@@ -377,7 +402,7 @@ fun DigitalIdCard(
                     // QR Code on the back for quick verification
                     val qrBitmap = remember(memberId) {
                         try {
-                            val payload = "IDMUSLIM:$memberId"
+                            val payload = "https://idmuslim.org/verify/$memberId"
                             val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 400, 400)
                             val bitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.RGB_565)
                             for (x in 0 until 400) {

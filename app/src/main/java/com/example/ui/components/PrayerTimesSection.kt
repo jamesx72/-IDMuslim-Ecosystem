@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ import com.example.data.RetrofitClient
 import com.example.data.Timings
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -109,6 +111,100 @@ fun PrayerTimesSection() {
                 Text("Réessayer")
             }
         } else if (prayerTimings != null) {
+            // Calculate next prayer
+            val currentCalendar = Calendar.getInstance()
+            val currentHour = currentCalendar.get(Calendar.HOUR_OF_DAY)
+            val currentMinute = currentCalendar.get(Calendar.MINUTE)
+            val currentMinutesTotal = currentHour * 60 + currentMinute
+            
+            val parseTime = { timeStr: String? ->
+                if (timeStr == null) {
+                    0
+                } else {
+                    val timePart = timeStr.substringBefore(" ")
+                    val parts = timePart.split(":")
+                    if (parts.size >= 2) {
+                        val h = parts[0].toIntOrNull() ?: 0
+                        val m = parts[1].toIntOrNull() ?: 0
+                        h * 60 + m
+                    } else 0
+                }
+            }
+
+            val prayers = listOf(
+                "Fajr" to prayerTimings?.Fajr,
+                "Dhuhr" to prayerTimings?.Dhuhr,
+                "Asr" to prayerTimings?.Asr,
+                "Maghrib" to prayerTimings?.Maghrib,
+                "Isha" to prayerTimings?.Isha
+            )
+            
+            var nextPrayerName: String? = null
+            var nextPrayerMinutesDiff: Int? = null
+            var isNow = false
+            
+            for ((name, timeStr) in prayers) {
+                if (timeStr != null) {
+                    val timeMins = parseTime(timeStr)
+                    if (timeMins >= currentMinutesTotal) {
+                        if (timeMins - currentMinutesTotal <= 15 && timeMins - currentMinutesTotal >= 0) {
+                            isNow = true
+                        }
+                        nextPrayerName = name
+                        nextPrayerMinutesDiff = timeMins - currentMinutesTotal
+                        break
+                    }
+                }
+            }
+            
+            if (nextPrayerName == null && prayers[0].second != null) {
+                nextPrayerName = prayers[0].first
+                nextPrayerMinutesDiff = (24 * 60 - currentMinutesTotal) + parseTime(prayers[0].second)
+            }
+            
+            if (nextPrayerName != null && nextPrayerMinutesDiff != null) {
+                val hours = nextPrayerMinutesDiff / 60
+                val mins = nextPrayerMinutesDiff % 60
+                val timeString = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = "Notification",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            if (isNow || nextPrayerMinutesDiff == 0) {
+                                Text(
+                                    "C'est l'heure de la prière de $nextPrayerName !",
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            } else {
+                                Text(
+                                    "Prochaine prière : $nextPrayerName",
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    "Dans $timeString",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -134,11 +230,11 @@ fun PrayerTimesSection() {
                         HorizontalDivider(modifier = Modifier.padding(bottom = 12.dp))
                     }
 
-                    PrayerRow("Fajr", prayerTimings?.Fajr ?: "")
-                    PrayerRow("Dhuhr", prayerTimings?.Dhuhr ?: "")
-                    PrayerRow("Asr", prayerTimings?.Asr ?: "")
-                    PrayerRow("Maghrib", prayerTimings?.Maghrib ?: "")
-                    PrayerRow("Isha", prayerTimings?.Isha ?: "")
+                    PrayerRow("Fajr", prayerTimings?.Fajr ?: "", nextPrayerName == "Fajr")
+                    PrayerRow("Dhuhr", prayerTimings?.Dhuhr ?: "", nextPrayerName == "Dhuhr")
+                    PrayerRow("Asr", prayerTimings?.Asr ?: "", nextPrayerName == "Asr")
+                    PrayerRow("Maghrib", prayerTimings?.Maghrib ?: "", nextPrayerName == "Maghrib")
+                    PrayerRow("Isha", prayerTimings?.Isha ?: "", nextPrayerName == "Isha")
                 }
             }
         }
@@ -146,12 +242,12 @@ fun PrayerTimesSection() {
 }
 
 @Composable
-fun PrayerRow(name: String, time: String) {
+fun PrayerRow(name: String, time: String, isNext: Boolean = false) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(name, fontWeight = FontWeight.SemiBold)
-        Text(time, color = MaterialTheme.colorScheme.primary)
+        Text(name, fontWeight = if (isNext) FontWeight.Bold else FontWeight.SemiBold, color = if (isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        Text(time, color = if (isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (isNext) FontWeight.Bold else FontWeight.Normal)
     }
 }
