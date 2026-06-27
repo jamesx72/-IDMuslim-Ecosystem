@@ -185,7 +185,8 @@ fun IDMuslimApp() {
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     viewModel = eventViewModel,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToEditProfile = { navController.navigate(Screen.EditProfile.route) }
                 )
             }
             composable(Screen.Events.route) {

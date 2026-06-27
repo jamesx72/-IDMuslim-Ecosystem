@@ -251,4 +251,44 @@ class SessionManager(context: Context) {
     fun getDarkTheme(): String {
         return prefs.getString(KEY_DARK_THEME, "system") ?: "system"
     }
+    
+    fun saveProfileVisibility(visibility: String) {
+        prefs.edit().putString("KEY_PROFILE_VISIBILITY", visibility).apply()
+    }
+
+    fun getProfileVisibility(): String {
+        return prefs.getString("KEY_PROFILE_VISIBILITY", "Public") ?: "Public"
+    }
+
+    fun saveShowEmail(show: Boolean) {
+        prefs.edit().putBoolean("KEY_SHOW_EMAIL", show).apply()
+    }
+
+    fun getShowEmail(): Boolean {
+        return prefs.getBoolean("KEY_SHOW_EMAIL", false)
+    }
+
+    fun saveShareLocation(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_LOCATION", share).apply()
+    }
+
+    fun getShareLocation(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_LOCATION", true)
+    }
+
+    fun saveShareData(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_DATA", share).apply()
+    }
+
+    fun getShareData(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_DATA", false)
+    }
+
+    fun saveAllowNotifications(allow: Boolean) {
+        prefs.edit().putBoolean("KEY_ALLOW_NOTIFICATIONS", allow).apply()
+    }
+
+    fun getAllowNotifications(): Boolean {
+        return prefs.getBoolean("KEY_ALLOW_NOTIFICATIONS", true)
+    }
 }

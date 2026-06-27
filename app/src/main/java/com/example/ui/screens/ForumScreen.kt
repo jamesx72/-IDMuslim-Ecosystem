@@ -33,6 +33,14 @@ fun ForumScreen(viewModel: EventViewModel) {
     val profileCommunity by viewModel.profileCommunityAffiliation.collectAsStateWithLifecycle()
 
     var showAddPostDialog by remember { mutableStateOf(false) }
+    val allRegions = remember(posts) {
+        listOf("All Regions") + posts.map { it.communityName }.distinct().filter { it.isNotBlank() }.sorted()
+    }
+    var selectedRegion by remember { mutableStateOf("All Regions") }
+    
+    val filteredPosts = remember(posts, selectedRegion) {
+        if (selectedRegion == "All Regions") posts else posts.filter { it.communityName == selectedRegion }
+    }
 
     Scaffold(
         topBar = {
@@ -95,8 +103,26 @@ fun ForumScreen(viewModel: EventViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
+                
+                androidx.compose.foundation.lazy.LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(allRegions) { region ->
+                        FilterChip(
+                            selected = selectedRegion == region,
+                            onClick = { selectedRegion = region },
+                            label = { Text(region) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
 
-                if (posts.isEmpty()) {
+                if (filteredPosts.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(Translations.get(language, "no_participation"))
                     }
@@ -105,7 +131,7 @@ fun ForumScreen(viewModel: EventViewModel) {
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(posts) { post ->
+                        items(filteredPosts) { post ->
                             PostCard(post)
                         }
                     }

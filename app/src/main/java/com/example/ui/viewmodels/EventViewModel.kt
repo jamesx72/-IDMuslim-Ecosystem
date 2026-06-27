@@ -178,6 +178,71 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasPaidForPdf = MutableStateFlow(com.example.network.ApiClient.getSessionManager().hasPaidForPdf())
     val hasPaidForPdf: StateFlow<Boolean> = _hasPaidForPdf.asStateFlow()
 
+    private val _profileVisibility = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileVisibility())
+    val profileVisibility: StateFlow<String> = _profileVisibility.asStateFlow()
+
+    private val _showEmail = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShowEmail())
+    val showEmail: StateFlow<Boolean> = _showEmail.asStateFlow()
+
+    private val _shareLocation = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareLocation())
+    val shareLocation: StateFlow<Boolean> = _shareLocation.asStateFlow()
+
+    private val _shareData = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareData())
+    val shareData: StateFlow<Boolean> = _shareData.asStateFlow()
+
+    private val _allowNotifications = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getAllowNotifications())
+    val allowNotifications: StateFlow<Boolean> = _allowNotifications.asStateFlow()
+
+    fun updateProfileVisibility(visibility: String) {
+        com.example.network.ApiClient.getSessionManager().saveProfileVisibility(visibility)
+        _profileVisibility.value = visibility
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShowEmail(show: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShowEmail(show)
+        _showEmail.value = show
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShareLocation(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareLocation(share)
+        _shareLocation.value = share
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShareData(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareData(share)
+        _shareData.value = share
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateAllowNotifications(allow: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveAllowNotifications(allow)
+        _allowNotifications.value = allow
+        savePrivacySettingsToFirestore()
+    }
+
+    private fun savePrivacySettingsToFirestore() {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
+        viewModelScope.launch {
+            try {
+                val privacySettings = mapOf(
+                    "profileVisibility" to _profileVisibility.value,
+                    "showEmail" to _showEmail.value,
+                    "shareLocation" to _shareLocation.value,
+                    "shareData" to _shareData.value,
+                    "allowNotifications" to _allowNotifications.value
+                )
+                com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("settings").document("privacy")
+                    .set(privacySettings, com.google.firebase.firestore.SetOptions.merge())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun setVerificationStatus(status: String) {
         com.example.network.ApiClient.getSessionManager().saveVerificationStatus(status)
         _verificationStatus.value = status
@@ -432,13 +497,30 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isProfileLoading.value = true
             try {
-                var pendingTasks = 2
+                var pendingTasks = 3
                 fun checkComplete() {
                     pendingTasks--
                     if (pendingTasks <= 0) {
                         _isProfileLoading.value = false
                     }
                 }
+
+                // Privacy Settings
+                com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("settings").document("privacy").get()
+                    .addOnCompleteListener { task ->
+                        if (task.isSuccessful) {
+                            val document = task.result
+                            if (document != null && document.exists()) {
+                                updateProfileVisibility(document.getString("profileVisibility") ?: "Public")
+                                updateShowEmail(document.getBoolean("showEmail") ?: false)
+                                updateShareLocation(document.getBoolean("shareLocation") ?: true)
+                                updateShareData(document.getBoolean("shareData") ?: false)
+                                updateAllowNotifications(document.getBoolean("allowNotifications") ?: true)
+                            }
+                        }
+                        checkComplete()
+                    }
 
                 // Public profile data
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid).get()

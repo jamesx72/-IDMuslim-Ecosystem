@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -235,6 +236,12 @@ fun ProfileScreen(
     val privacyMode by viewModel.privacyMode.collectAsState()
     val activityLogs by viewModel.activityLogs.collectAsState()
     val familyMembers by viewModel.familyMembers.collectAsState()
+    
+    val profileVisibility by viewModel.profileVisibility.collectAsState()
+    val showEmail by viewModel.showEmail.collectAsState()
+    val shareLocation by viewModel.shareLocation.collectAsState()
+    val shareData by viewModel.shareData.collectAsState()
+    val allowNotifications by viewModel.allowNotifications.collectAsState()
 
     var showVerificationDialog by remember { mutableStateOf(false) }
     var showThemeMenu by remember { mutableStateOf(false) }
@@ -903,15 +910,29 @@ fun ProfileScreen(
                     )
                 }
                 
-                if (!isVerified) {
-                    item {
-                        VerificationStatusDashboard(
-                            verificationStatus = verificationStatus,
-                            verificationStep = verificationStep,
-                            language = language,
-                            onStartVerification = { showVerificationDialog = true }
-                        )
-                    }
+                item {
+                    VerificationStatusDashboard(
+                        verificationStatus = verificationStatus,
+                        verificationStep = verificationStep,
+                        language = language,
+                        onStartVerification = { showVerificationDialog = true }
+                    )
+                }
+
+                item {
+                    com.example.ui.components.PrivacySettingsDashboard(
+                        language = language,
+                        profileVisibility = profileVisibility,
+                        showEmail = showEmail,
+                        shareLocation = shareLocation,
+                        shareData = shareData,
+                        allowNotifications = allowNotifications,
+                        onUpdateProfileVisibility = { viewModel.updateProfileVisibility(it) },
+                        onUpdateShowEmail = { viewModel.updateShowEmail(it) },
+                        onUpdateShareLocation = { viewModel.updateShareLocation(it) },
+                        onUpdateShareData = { viewModel.updateShareData(it) },
+                        onUpdateAllowNotifications = { viewModel.updateAllowNotifications(it) }
+                    )
                 }
 
                 if (isAuthenticated) {
@@ -980,6 +1001,16 @@ fun ProfileScreen(
                             language = language,
                             ticketsCount = tickets.size,
                             context = context,
+                            profileVisibility = profileVisibility,
+                            showEmail = showEmail,
+                            shareLocation = shareLocation,
+                            shareData = shareData,
+                            allowNotifications = allowNotifications,
+                            onUpdateProfileVisibility = { viewModel.updateProfileVisibility(it) },
+                            onUpdateShowEmail = { viewModel.updateShowEmail(it) },
+                            onUpdateShareLocation = { viewModel.updateShareLocation(it) },
+                            onUpdateShareData = { viewModel.updateShareData(it) },
+                            onUpdateAllowNotifications = { viewModel.updateAllowNotifications(it) },
                             onDocumentUpload = { documentUploadLauncher.launch("image/*") },
                             onStartVerification = { showVerificationDialog = true }
                         )
@@ -2153,6 +2184,16 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
         }
     }
     
+    val docGalleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            docImageUri = uri
+            docPhotoCaptured = true
+            isDocScanning = false
+        }
+    }
+    
     fun launchCamera() {
         try {
             val storageDir = java.io.File(context.cacheDir, "images")
@@ -2183,6 +2224,16 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
             selfieCaptured = true
             isSelfieScanning = false
         } else {
+            isSelfieScanning = false
+        }
+    }
+    
+    val selfieGalleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            selfieImageUri = uri
+            selfieCaptured = true
             isSelfieScanning = false
         }
     }
@@ -2588,17 +2639,38 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                     }
                     
                     // Scan Actions
-                    Button(
-                        onClick = { launchCamera() },
-                        enabled = !isDocScanning,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (docPhotoCaptured) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                        )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (docPhotoCaptured) "Reprendre la photo du document" else "Lancer la capture caméra")
+                        Button(
+                            onClick = { launchCamera() },
+                            enabled = !isDocScanning,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (docPhotoCaptured) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (docPhotoCaptured) "Prendre à nouveau" else "Caméra",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { docGalleryLauncher.launch("image/*") },
+                            enabled = !isDocScanning,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(imageVector = Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (docPhotoCaptured) "Galerie (Nouveau)" else "Galerie",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
                     }
                     
                     Spacer(modifier = Modifier.height(32.dp))
@@ -2729,17 +2801,38 @@ fun VerificationWorkflowDialog(language: String, viewModel: EventViewModel, onDi
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    Button(
-                        onClick = { launchSelfieCamera() },
-                        enabled = !isSelfieScanning,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (selfieCaptured) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                        )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (selfieCaptured) "Reprendre le selfie" else "Capturer mon selfie")
+                        Button(
+                            onClick = { launchSelfieCamera() },
+                            enabled = !isSelfieScanning,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selfieCaptured) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (selfieCaptured) "Reprendre selfie" else "Caméra",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { selfieGalleryLauncher.launch("image/*") },
+                            enabled = !isSelfieScanning,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(imageVector = Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (selfieCaptured) "Galerie (Nouveau)" else "Galerie",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
                     }
                     
                     Spacer(modifier = Modifier.height(32.dp))
@@ -3095,6 +3188,16 @@ fun CredentialsDashboardSection(
     language: String,
     ticketsCount: Int,
     context: android.content.Context,
+    profileVisibility: String,
+    showEmail: Boolean,
+    shareLocation: Boolean,
+    shareData: Boolean,
+    allowNotifications: Boolean,
+    onUpdateProfileVisibility: (String) -> Unit,
+    onUpdateShowEmail: (Boolean) -> Unit,
+    onUpdateShareLocation: (Boolean) -> Unit,
+    onUpdateShareData: (Boolean) -> Unit,
+    onUpdateAllowNotifications: (Boolean) -> Unit,
     onDocumentUpload: () -> Unit = {},
     onStartVerification: () -> Unit = {}
 ) {
@@ -3175,15 +3278,28 @@ fun CredentialsDashboardSection(
                 .padding(horizontal = 20.dp, vertical = 6.dp)
         )
 
-        if (!isVerified) {
-            VerificationStatusDashboard(
-                verificationStatus = verificationStatus,
-                verificationStep = verificationStep,
-                language = language,
-                onStartVerification = onStartVerification,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-            )
-        }
+        VerificationStatusDashboard(
+            verificationStatus = verificationStatus,
+            verificationStep = verificationStep,
+            language = language,
+            onStartVerification = onStartVerification,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+        )
+
+        com.example.ui.components.PrivacySettingsDashboard(
+            language = language,
+            profileVisibility = profileVisibility,
+            showEmail = showEmail,
+            shareLocation = shareLocation,
+            shareData = shareData,
+            allowNotifications = allowNotifications,
+            onUpdateProfileVisibility = onUpdateProfileVisibility,
+            onUpdateShowEmail = onUpdateShowEmail,
+            onUpdateShareLocation = onUpdateShareLocation,
+            onUpdateShareData = onUpdateShareData,
+            onUpdateAllowNotifications = onUpdateAllowNotifications,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
 
         // 2. Verified Digital ID Certificate (Attestation Officielle)
         Card(

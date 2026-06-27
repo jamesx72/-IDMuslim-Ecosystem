@@ -6,12 +6,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import com.example.ui.viewmodels.EventViewModel
 import com.example.ui.locales.Translations
 
@@ -22,7 +32,9 @@ fun EditProfileScreen(
     onNavigateBack: () -> Unit
 ) {
     val language by viewModel.language.collectAsState()
+    val context = LocalContext.current
     
+    val profilePhotoBase64 by viewModel.profilePhotoBase64.collectAsState()
     val currentFullName by viewModel.profileFullName.collectAsState()
     val currentDob by viewModel.profileDob.collectAsState()
     val currentResidency by viewModel.profileResidency.collectAsState()
@@ -46,6 +58,84 @@ fun EditProfileScreen(
     var docExpiryDate by remember { mutableStateOf(currentExpiryDate ?: "") }
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val decodedBitmap by remember(profilePhotoBase64) {
+        derivedStateOf {
+            if (!profilePhotoBase64.isNullOrEmpty()) {
+                try {
+                    val decodedString = android.util.Base64.decode(profilePhotoBase64, android.util.Base64.DEFAULT)
+                    android.graphics.BitmapFactory.decodeByteArray(decodedString, 0, decodedString.size)
+                } catch (e: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+        }
+    }
+    
+    val processImageUri = { uri: android.net.Uri ->
+        try {
+            val resolver = context.contentResolver
+            val orientation = try {
+                resolver.openInputStream(uri)?.use { stream ->
+                    val exifInterface = android.media.ExifInterface(stream)
+                    exifInterface.getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_UNDEFINED
+                    )
+                } ?: android.media.ExifInterface.ORIENTATION_UNDEFINED
+            } catch (e: Exception) {
+                android.media.ExifInterface.ORIENTATION_UNDEFINED
+            }
+            
+            val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                val source = android.graphics.ImageDecoder.createSource(resolver, uri)
+                android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                    decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = true
+                }
+            } else {
+                android.provider.MediaStore.Images.Media.getBitmap(resolver, uri)
+            }
+            
+            val matrix = android.graphics.Matrix()
+            when (orientation) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            }
+            val orientedBitmap = if (!matrix.isIdentity()) {
+                android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                bitmap
+            }
+            
+            val size = Math.min(orientedBitmap.width, orientedBitmap.height)
+            val x = (orientedBitmap.width - size) / 2
+            val y = (orientedBitmap.height - size) / 2
+            var squaredBitmap = android.graphics.Bitmap.createBitmap(orientedBitmap, x, y, size, size)
+            if (squaredBitmap.config != android.graphics.Bitmap.Config.ARGB_8888) {
+                squaredBitmap = squaredBitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+            }
+            
+            val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(squaredBitmap, 800, 800, true)
+            val outputStream = java.io.ByteArrayOutputStream()
+            scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, outputStream)
+            val base64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+            viewModel.updateProfilePhoto(base64)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            processImageUri(uri)
+        }
+    }
 
     LaunchedEffect(currentFullName, currentDob, currentResidency, currentCommunity, currentPassport, currentLicense, currentDocType, currentDocNumber, currentIssuingCountry, currentExpiryDate) {
         if (fullName.isEmpty() && !currentFullName.isNullOrEmpty()) {
@@ -99,6 +189,53 @@ fun EditProfileScreen(
                 .padding(20.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(120.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { galleryLauncher.launch("image/*") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (decodedBitmap != null) {
+                        Image(
+                            bitmap = decodedBitmap!!.asImageBitmap(),
+                            contentDescription = "Profile Photo",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    // Camera overlay icon
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = "Change Photo",
+                            tint = androidx.compose.ui.graphics.Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+            }
+
             Text(
                 Translations.get(language, "personal_info"),
                 style = MaterialTheme.typography.titleMedium,
