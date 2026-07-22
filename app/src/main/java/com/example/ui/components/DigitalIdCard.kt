@@ -1,4 +1,6 @@
 package com.example.ui.components
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Sync
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -62,6 +64,8 @@ fun DigitalIdCard(
     language: String,
     privacyMode: Boolean = false,
     onPhotoClick: (() -> Unit)? = null,
+    lastSyncTime: Long? = null,
+    onDownloadPdfClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val themeColors = when (cardTheme) {
@@ -192,6 +196,19 @@ fun DigitalIdCard(
                                 letterSpacing = 2.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+                        
+                        if (onDownloadPdfClick != null) {
+                            androidx.compose.material3.IconButton(
+                                onClick = onDownloadPdfClick,
+                                modifier = Modifier.size(32.dp).padding(start = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PictureAsPdf,
+                                    contentDescription = "Download PDF",
+                                    tint = Color.White.copy(alpha = 0.8f)
+                                )
+                            }
                         }
                         
                         Spacer(modifier = Modifier.height(12.dp))
@@ -396,6 +413,25 @@ fun DigitalIdCard(
                         label = Translations.get(language, "license_number"),
                         value = if (privacyMode) Translations.get(language, "hidden_field") else licenseNumber?.ifEmpty { "--" } ?: "--"
                     )
+                    
+                    if (lastSyncTime != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.Sync,
+                                contentDescription = "Synced",
+                                tint = Color.White.copy(alpha = 0.6f),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Last synced: " + java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastSyncTime)),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
                     
                     Spacer(modifier = Modifier.weight(1f))
                     

@@ -26,14 +26,22 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: EventRepository
     private val activityLogDao: com.example.data.ActivityLogDao
     private val communityPostDao: com.example.data.CommunityPostDao
+    private val userProfileDao: com.example.data.UserProfileDao
 
     init {
         val database = AppDatabase.getDatabase(application)
         val eventDao = database.eventDao()
         activityLogDao = database.activityLogDao()
         communityPostDao = database.communityPostDao()
+        userProfileDao = database.userProfileDao()
         repository = EventRepository(eventDao)
     }
+
+    val cachedUserProfile = userProfileDao.getUserProfile(FirebaseAuth.getInstance().currentUser?.uid ?: "").stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
 
     val communityPosts: StateFlow<List<com.example.data.CommunityPostEntity>> = communityPostDao.getAllPosts().stateIn(
         scope = viewModelScope,
@@ -532,6 +540,28 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                 publicProfile?.let {
                                     updateProfileFullName(it.fullName)
                                     updateProfileCommunityAffiliation(it.community)
+                                    viewModelScope.launch {
+                                        val existing = userProfileDao.getUserProfileSync(user.uid)
+                                        userProfileDao.insertUserProfile(
+                                            com.example.data.UserProfileEntity(
+                                                uid = user.uid,
+                                                fullName = it.fullName,
+                                                avatarUrl = it.avatarUrl,
+                                                membershipStatus = it.membershipStatus,
+                                                isVerified = it.isVerified,
+                                                community = it.community,
+                                                expiryDate = it.expiryDate,
+                                                dob = existing?.dob ?: "",
+                                                residency = existing?.residency ?: "",
+                                                passportNumber = existing?.passportNumber ?: "",
+                                                licenseNumber = existing?.licenseNumber ?: "",
+                                                docType = existing?.docType ?: "",
+                                                docNumber = existing?.docNumber ?: "",
+                                                issuingCountry = existing?.issuingCountry ?: "",
+                                                lastSyncTime = System.currentTimeMillis()
+                                            )
+                                        )
+                                    }
                                 }
                                 
                                 val hasPaid = document.getBoolean("hasPaidForPdf") ?: false
@@ -561,6 +591,23 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                     updateProfileDocNumber(it.docNumber)
                                     updateProfileIssuingCountry(it.issuingCountry)
                                     updateProfileExpiryDate(it.expiryDate)
+                                    viewModelScope.launch {
+                                        val existing = userProfileDao.getUserProfileSync(user.uid)
+                                        if (existing != null) {
+                                            userProfileDao.insertUserProfile(
+                                                existing.copy(
+                                                    dob = it.dob,
+                                                    residency = it.residency,
+                                                    passportNumber = it.passportNumber,
+                                                    licenseNumber = it.licenseNumber,
+                                                    docType = it.docType,
+                                                    docNumber = it.docNumber,
+                                                    issuingCountry = it.issuingCountry,
+                                                    lastSyncTime = System.currentTimeMillis()
+                                                )
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -9,6 +11,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,10 +55,11 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             // Profile Section
             Text(
-                text = Translations.get(language, "personal_info") ?: "Informations personnelles",
+                text = Translations.get(language, "personal_info"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -81,8 +85,8 @@ fun SettingsScreen(
                         Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
-                            Text(Translations.get(language, "edit_profile") ?: "Modifier le Profil", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Text("Nom, date de naissance, etc.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(Translations.get(language, "nav_edit_profile"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(Translations.get(language, "edit_profile_desc"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -91,7 +95,7 @@ fun SettingsScreen(
 
             // Notifications Section
             Text(
-                text = "Notifications",
+                text = Translations.get(language, "notifications"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -163,7 +167,7 @@ fun SettingsScreen(
 
             // Theme Section
             Text(
-                text = Translations.get(language, "security_mfa") ?: "Sécurité & MFA",
+                text = Translations.get(language, "security_mfa"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -191,12 +195,12 @@ fun SettingsScreen(
                         Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) // Used Settings icon as placeholder
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
-                            Text(Translations.get(language, "mfa_enrollment") ?: "Authentification 2 facteurs (A2F)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Text(if (isMfaEnrolled) "Activé" else "Désactivé", style = MaterialTheme.typography.bodyMedium, color = if (isMfaEnrolled) androidx.compose.ui.graphics.Color(0xFF10B981) else MaterialTheme.colorScheme.error)
+                            Text(Translations.get(language, "mfa_enrollment"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(if (isMfaEnrolled) Translations.get(language, "enabled") else Translations.get(language, "disabled"), style = MaterialTheme.typography.bodyMedium, color = if (isMfaEnrolled) androidx.compose.ui.graphics.Color(0xFF10B981) else MaterialTheme.colorScheme.error)
                         }
                     }
                     Button(onClick = { showMfaEnrollment = true }, enabled = !isMfaEnrolled && user != null) {
-                        Text(if (isMfaEnrolled) "Configuré" else "Activer")
+                        Text(if (isMfaEnrolled) Translations.get(language, "configured") else Translations.get(language, "enable"))
                     }
                 }
             }
@@ -210,7 +214,7 @@ fun SettingsScreen(
 
                 AlertDialog(
                     onDismissRequest = { showMfaEnrollment = false },
-                    title = { Text("Configuration A2F (SMS)") },
+                    title = { Text(Translations.get(language, "mfa_setup_title")) },
                     text = {
                         Column {
                             if (mfaError != null) {
@@ -218,22 +222,22 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
                             if (mfaVerificationId == null) {
-                                Text("Entrez votre numéro de téléphone (avec l'indicatif, ex: +33612345678) pour recevoir les codes de vérification.")
+                                Text(Translations.get(language, "mfa_phone_prompt"))
                                 Spacer(modifier = Modifier.height(8.dp))
                                 OutlinedTextField(
                                     value = phoneNumber,
                                     onValueChange = { phoneNumber = it },
-                                    label = { Text("Numéro de téléphone") },
+                                    label = { Text(Translations.get(language, "phone_number")) },
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone),
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             } else {
-                                Text("Entrez le code SMS reçu.")
+                                Text(Translations.get(language, "mfa_code_prompt"))
                                 Spacer(modifier = Modifier.height(8.dp))
                                 OutlinedTextField(
                                     value = mfaCode,
                                     onValueChange = { mfaCode = it },
-                                    label = { Text("Code SMS") },
+                                    label = { Text(Translations.get(language, "sms_code")) },
                                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -273,7 +277,7 @@ fun SettingsScreen(
                                 if (mfaCode.isNotBlank()) {
                                     val credential = com.google.firebase.auth.PhoneAuthProvider.getCredential(mfaVerificationId!!, mfaCode)
                                     val assertion = com.google.firebase.auth.PhoneMultiFactorGenerator.getAssertion(credential)
-                                    user.multiFactor.enroll(assertion, "Mon Téléphone").addOnCompleteListener { enrollTask ->
+                                    user.multiFactor.enroll(assertion, "Phone").addOnCompleteListener { enrollTask ->
                                         if (enrollTask.isSuccessful) {
                                             showMfaEnrollment = false
                                             // Ideally we should force recomposition of the parent
@@ -284,12 +288,12 @@ fun SettingsScreen(
                                 }
                             }
                         }) {
-                            Text(if (mfaVerificationId == null) "Envoyer le SMS" else "Valider")
+                            Text(if (mfaVerificationId == null) Translations.get(language, "send_sms") else Translations.get(language, "validate"))
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { showMfaEnrollment = false }) {
-                            Text("Annuler")
+                            Text(Translations.get(language, "cancel"))
                         }
                     }
                 )
@@ -361,7 +365,8 @@ fun SettingsScreen(
                         Text(Translations.get(language, "app_language"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                     }
 
-                    Row(
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
@@ -380,8 +385,80 @@ fun SettingsScreen(
                             selected = language == "ar",
                             onClick = { viewModel.updateLanguage("ar") }
                         )
+                        LanguageOption(
+                            label = "Español",
+                            selected = language == "es",
+                            onClick = { viewModel.updateLanguage("es") }
+                        )
+                        LanguageOption(
+                            label = "Bahasa",
+                            selected = language == "id",
+                            onClick = { viewModel.updateLanguage("id") }
+                        )
                     }
                 }
+            }
+
+            // Danger Zone
+            var showDeleteDialog by remember { mutableStateOf(false) }
+            Text(
+                text = Translations.get(language, "danger_zone") ?: "Danger Zone",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .clickable { showDeleteDialog = true },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(Translations.get(language, "delete_account") ?: "Delete Account", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(Translations.get(language, "delete_account_desc") ?: "Permanently delete your data", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f))
+                    }
+                }
+            }
+            
+            if (showDeleteDialog) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteDialog = false },
+                    title = { Text(Translations.get(language, "delete_account") ?: "Delete Account") },
+                    text = { Text(Translations.get(language, "delete_account_confirm") ?: "Are you sure you want to permanently delete your account? This action cannot be undone.") },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showDeleteDialog = false
+                                user?.delete()?.addOnCompleteListener {
+                                    if (it.isSuccessful) {
+                                        com.example.network.ApiClient.getSessionManager().logout()
+                                        onNavigateBack() // this will trigger a recompose and eventually bring the user to Auth Screen
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text(Translations.get(language, "delete") ?: "Delete")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteDialog = false }) {
+                            Text(Translations.get(language, "cancel"))
+                        }
+                    }
+                )
             }
         }
     }

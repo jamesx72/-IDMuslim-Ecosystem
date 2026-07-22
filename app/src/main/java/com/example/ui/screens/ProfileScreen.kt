@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.clickable
@@ -196,6 +198,7 @@ fun ProfileScreen(
     onNavigateToEditProfile: () -> Unit = {}
 ) {
     val firebaseUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
+    val cachedUserProfile by viewModel.cachedUserProfile.collectAsStateWithLifecycle()
     val memberId = remember(firebaseUser) {
         if (firebaseUser != null) {
             "IDM-${firebaseUser.uid.take(8).uppercase()}"
