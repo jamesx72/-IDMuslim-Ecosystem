@@ -291,4 +291,12 @@ class SessionManager(context: Context) {
     fun getAllowNotifications(): Boolean {
         return prefs.getBoolean("KEY_ALLOW_NOTIFICATIONS", true)
     }
+
+    fun setHasSeenTutorial(hasSeen: Boolean) {
+        prefs.edit().putBoolean("KEY_HAS_SEEN_TUTORIAL", hasSeen).apply()
+    }
+    
+    fun hasSeenTutorial(): Boolean {
+        return prefs.getBoolean("KEY_HAS_SEEN_TUTORIAL", false)
+    }
 }

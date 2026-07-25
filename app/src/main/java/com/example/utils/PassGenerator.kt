@@ -20,6 +20,8 @@ object PassGenerator {
               "passTypeIdentifier": "pass.com.aistudio.digitalid",
               "serialNumber": "$memberId",
               "teamIdentifier": "AISTUDIOTEAM",
+              "authenticationToken": "${com.example.BuildConfig.WALLET_TOKEN}",
+              "webServiceURL": "https://example.com/api/wallet/",
               "organizationName": "Digital ID",
               "description": "Digital Identity Pass",
               "logoText": "Digital ID",

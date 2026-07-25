@@ -1,4 +1,7 @@
 package com.example.ui.screens
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Add
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -413,7 +416,87 @@ fun EditProfileScreen(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
                 shape = RoundedCornerShape(12.dp)
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
+            Spacer(modifier = Modifier.height(16.dp))
             
+            Text(
+                "Documents joints",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            val userDocs by viewModel.userDocuments.collectAsState()
+            var isUploadingDoc by remember { mutableStateOf(false) }
+            
+            val docPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.GetContent()
+            ) { uri: android.net.Uri? ->
+                if (uri != null) {
+                    isUploadingDoc = true
+                    viewModel.uploadUserDocument(uri, "Document joint") { success ->
+                        isUploadingDoc = false
+                        if (!success) {
+                            errorMessage = "Erreur lors du téléchargement du document."
+                        }
+                    }
+                }
+            }
+            
+            if (userDocs.isEmpty()) {
+                Text(
+                    "Aucun document joint.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            } else {
+                userDocs.forEach { doc ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.UploadFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(doc.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date(doc.uploadedAt)),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = { viewModel.deleteUserDocument(doc.id) { } }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Button(
+                onClick = { docPickerLauncher.launch("application/pdf") },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
+                shape = RoundedCornerShape(12.dp),
+                enabled = !isUploadingDoc
+            ) {
+                if (isUploadingDoc) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Ajouter un document (PDF)")
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             errorMessage?.let { msg ->

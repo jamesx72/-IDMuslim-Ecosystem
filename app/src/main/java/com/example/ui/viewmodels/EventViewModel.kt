@@ -27,6 +27,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val activityLogDao: com.example.data.ActivityLogDao
     private val communityPostDao: com.example.data.CommunityPostDao
     private val userProfileDao: com.example.data.UserProfileDao
+    private val documentDao: com.example.data.DocumentDao
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -34,8 +35,25 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         activityLogDao = database.activityLogDao()
         communityPostDao = database.communityPostDao()
         userProfileDao = database.userProfileDao()
+        documentDao = database.documentDao()
         repository = EventRepository(eventDao)
+
+        viewModelScope.launch {
+            documentDao.getAllDocuments().collect { docs ->
+                if (docs.isNotEmpty() || _userDocuments.value.isEmpty()) {
+                    _userDocuments.value = docs.map { doc ->
+                        UserDocument(doc.id, doc.name, doc.url, doc.uploadedAt)
+                    }
+                }
+            }
+        }
     }
+
+    val cachedDocuments: StateFlow<List<com.example.data.DocumentEntity>> = documentDao.getAllDocuments().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
 
     val cachedUserProfile = userProfileDao.getUserProfile(FirebaseAuth.getInstance().currentUser?.uid ?: "").stateIn(
         scope = viewModelScope,
@@ -80,15 +98,52 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
+    data class FirestoreActivityLog(val id: String = "", val timestamp: Long = 0, val actionType: String = "", val description: String = "")
+    private val _userActivityLogs = MutableStateFlow<List<FirestoreActivityLog>>(emptyList())
+    val userActivityLogs: StateFlow<List<FirestoreActivityLog>> = _userActivityLogs.asStateFlow()
+
+    fun loadUserActivityLogs() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("activity_logs")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val logs = snapshot.documents.mapNotNull { doc ->
+                    val id = doc.id
+                    val timestamp = doc.getLong("timestamp") ?: 0L
+                    val actionType = doc.getString("actionType") ?: ""
+                    val description = doc.getString("description") ?: ""
+                    FirestoreActivityLog(id, timestamp, actionType, description)
+                }
+                _userActivityLogs.value = logs
+            }
+    }
+
     fun logActivity(actionType: String, description: String) {
         viewModelScope.launch {
+            val ts = System.currentTimeMillis()
             activityLogDao.insertLog(
                 com.example.data.ActivityLogEntity(
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = ts,
                     actionType = actionType,
                     description = description
                 )
             )
+            
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                val data = hashMapOf(
+                    "timestamp" to ts,
+                    "actionType" to actionType,
+                    "description" to description
+                )
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("activity_logs").add(data)
+                    .addOnSuccessListener {
+                        loadUserActivityLogs()
+                    }
+            }
         }
     }
 
@@ -149,6 +204,10 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _privacyMode = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrivacyMode())
     val privacyMode: StateFlow<Boolean> = _privacyMode.asStateFlow()
+
+    data class UserDocument(val id: String = "", val name: String = "", val url: String = "", val uploadedAt: Long = 0L)
+    private val _userDocuments = MutableStateFlow<List<UserDocument>>(emptyList())
+    val userDocuments: StateFlow<List<UserDocument>> = _userDocuments.asStateFlow()
 
     private val _isProfileLoading = MutableStateFlow(false)
     val isProfileLoading: StateFlow<Boolean> = _isProfileLoading.asStateFlow()
@@ -309,7 +368,120 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
+    fun loadUserDocuments() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("documents").get()
+            .addOnSuccessListener { snapshot ->
+                val docs = snapshot.documents.mapNotNull { doc ->
+                    val id = doc.id
+                    val name = doc.getString("name") ?: "Document"
+                    val url = doc.getString("url") ?: ""
+                    val uploadedAt = doc.getLong("uploadedAt") ?: 0L
+                    UserDocument(id, name, url, uploadedAt)
+                }
+                _userDocuments.value = docs.sortedByDescending { it.uploadedAt }
+
+                // Persist/Cache in Room Database for offline availability
+                viewModelScope.launch {
+                    val entities = docs.map { doc ->
+                        com.example.data.DocumentEntity(
+                            id = doc.id,
+                            name = doc.name,
+                            url = doc.url,
+                            uploadedAt = doc.uploadedAt,
+                            docType = "Document",
+                            status = "VERIFIED"
+                        )
+                    }
+                    documentDao.insertAll(entities)
+                }
+            }
+    }
+
+    fun uploadUserDocument(uri: Uri, docName: String, onResult: (Boolean) -> Unit) {
+        val user = FirebaseAuth.getInstance().currentUser
+        val docId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+
+        // Cache locally in Room immediately
+        viewModelScope.launch {
+            documentDao.insertDocument(
+                com.example.data.DocumentEntity(
+                    id = docId,
+                    name = docName,
+                    url = uri.toString(),
+                    uploadedAt = timestamp,
+                    docType = "Document joint",
+                    status = "LOCAL_CACHE"
+                )
+            )
+        }
+
+        if (user == null) {
+            onResult(true)
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val storageRef = FirebaseStorage.getInstance().reference.child("user_docs/${user.uid}/${timestamp}_${docName.replace(" ", "_")}.pdf")
+                storageRef.putFile(uri).addOnSuccessListener {
+                    storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
+                        val data = hashMapOf(
+                            "name" to docName,
+                            "url" to downloadUri.toString(),
+                            "uploadedAt" to timestamp
+                        )
+                        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                            .collection("documents").document(docId).set(data)
+                            .addOnSuccessListener {
+                                loadUserDocuments()
+                                onResult(true)
+                            }
+                            .addOnFailureListener { onResult(true) } // Saved locally in Room
+                    }.addOnFailureListener { onResult(true) }
+                }.addOnFailureListener { onResult(true) }
+            } catch (e: Exception) {
+                onResult(true) // Saved locally in Room
+            }
+        }
+    }
+
+    fun deleteUserDocument(docId: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            documentDao.deleteDocumentById(docId)
+        }
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            onResult(true)
+            return
+        }
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("documents").document(docId).delete()
+            .addOnSuccessListener {
+                loadUserDocuments()
+                onResult(true)
+            }
+            .addOnFailureListener { onResult(true) }
+    }
+
     fun uploadDocumentForVerification(uri: Uri, context: Context) {
+        val docId = UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+
+        // Locally cache in Room for offline history
+        val localDoc = com.example.data.DocumentEntity(
+            id = docId,
+            name = "Justificatif d'identité (Scan IDMuslim)",
+            url = uri.toString(),
+            uploadedAt = timestamp,
+            docType = "Pièce d'identité",
+            status = "PENDING"
+        )
+        viewModelScope.launch {
+            documentDao.insertDocument(localDoc)
+        }
+
         val user = FirebaseAuth.getInstance().currentUser ?: return
         viewModelScope.launch {
             setVerificationStatus("PENDING")
@@ -317,14 +489,14 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             logActivity("INFO", "Dépôt de document d'identité pour vérification")
             
             try {
-                val storageRef = FirebaseStorage.getInstance().reference.child("verification_docs/${user.uid}/${System.currentTimeMillis()}.jpg")
+                val storageRef = FirebaseStorage.getInstance().reference.child("verification_docs/${user.uid}/${timestamp}.jpg")
                 val uploadTask = storageRef.putFile(uri)
                 uploadTask.addOnSuccessListener {
                     storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
                         val data = hashMapOf(
                             "verificationStatus" to "PENDING",
                             "documentUrl" to downloadUri.toString(),
-                            "updatedAt" to System.currentTimeMillis()
+                            "updatedAt" to timestamp
                         )
                         FirebaseFirestore.getInstance().collection("users").document(user.uid)
                             .set(data, com.google.firebase.firestore.SetOptions.merge())
@@ -332,11 +504,11 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }.addOnFailureListener {
                     setVerificationStatus("UNVERIFIED")
-                    _verificationStep.value = "Échec du téléchargement."
+                    _verificationStep.value = "Échec du téléchargement en ligne (enregistré localement)."
                 }
             } catch (e: Exception) {
                 setVerificationStatus("UNVERIFIED")
-                _verificationStep.value = "Erreur."
+                _verificationStep.value = "Erreur réseau (enregistré localement)."
             }
         }
     }
@@ -496,6 +668,18 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     .set(privateIdentity, com.google.firebase.firestore.SetOptions.merge())
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    fun clearCacheAndRefresh(onComplete: () -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val db = AppDatabase.getDatabase(getApplication())
+            db.clearAllTables()
+            launch(kotlinx.coroutines.Dispatchers.Main) {
+                loadProfileFromFirestore()
+                syncVerificationStatusFromFirestore()
+                onComplete()
             }
         }
     }

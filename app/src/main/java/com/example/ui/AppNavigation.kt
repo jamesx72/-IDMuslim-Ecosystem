@@ -29,6 +29,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.ui.screens.CreateEventScreen
+import com.example.ui.screens.DocumentScannerScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.EventDetailScreen
 import com.example.ui.screens.EventsScreen
@@ -59,6 +60,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Settings : Screen("settings", "Paramètres", Icons.Default.Settings)
     object CreateEvent : Screen("create_event", "Créer un événement", null)
     object EditProfile : Screen("edit_profile", "Modifier le Profil", null)
+    object DocumentScanner : Screen("document_scanner", "Scanner un document", null)
     object EventDetail : Screen("event_detail/{eventId}", "Détails", null) {
         fun createRoute(eventId: Int) = "event_detail/$eventId"
     }
@@ -73,7 +75,7 @@ val bottomNavItems = listOf(
 )
 
 @Composable
-fun IDMuslimApp() {
+fun IDMuslimApp(startRoute: String = "auth") {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -164,6 +166,9 @@ fun IDMuslimApp() {
                     },
                     onNavigateToEditProfile = {
                         navController.navigate(Screen.EditProfile.route)
+                    },
+                    onNavigateToDocumentScanner = {
+                        navController.navigate(Screen.DocumentScanner.route)
                     }
                 )
             }
@@ -175,6 +180,12 @@ fun IDMuslimApp() {
             }
             composable(Screen.Scanner.route) {
                 ScannerScreen()
+            }
+            composable(Screen.DocumentScanner.route) {
+                DocumentScannerScreen(
+                    viewModel = eventViewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
             }
             composable(Screen.Forum.route) {
                 ForumScreen(viewModel = eventViewModel)

@@ -1,4 +1,7 @@
 package com.example.ui.components
+import androidx.compose.ui.draw.blur
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Sync
 
@@ -66,6 +69,7 @@ fun DigitalIdCard(
     onPhotoClick: (() -> Unit)? = null,
     lastSyncTime: Long? = null,
     onDownloadPdfClick: (() -> Unit)? = null,
+    onShareClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val themeColors = when (cardTheme) {
@@ -103,6 +107,13 @@ fun DigitalIdCard(
         targetValue = if (isFlipped) 180f else 0f,
         animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
     )
+    
+    var shieldActive by remember { mutableStateOf(true) }
+    val blurRadius by animateDpAsState(
+        targetValue = if (shieldActive) 8.dp else 0.dp,
+        animationSpec = tween(durationMillis = 300)
+    )
+    val blurModifier = if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
 
     Card(
         modifier = modifier
@@ -182,12 +193,17 @@ fun DigitalIdCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.7f),
-                                modifier = Modifier.size(16.dp)
-                            )
+                            IconButton(
+                                onClick = { shieldActive = !shieldActive },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (shieldActive) Icons.Default.Shield else androidx.compose.material.icons.Icons.Default.Visibility,
+                                    contentDescription = "Toggle Privacy Shield",
+                                    tint = if (shieldActive) Color(0xFF10B981) else Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = Translations.get(language, "identity_card").uppercase(),
@@ -217,11 +233,11 @@ fun DigitalIdCard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = if (privacyMode) Translations.get(language, "hidden_field") else if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
+                                text = if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
-                                modifier = Modifier.weight(1f, fill = false),
+                                modifier = Modifier.weight(1f, fill = false).then(blurModifier),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -235,7 +251,7 @@ fun DigitalIdCard(
                     }
                     
                     // Profile Image
-                    if (!privacyMode) {
+                    if (true) {
                         var decodedBitmap: Bitmap? = null
                         if (profilePhotoBase64 != null) {
                             try {
@@ -258,7 +274,7 @@ fun DigitalIdCard(
                                 Image(
                                     bitmap = decodedBitmap.asImageBitmap(),
                                     contentDescription = "Profile Photo",
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier.fillMaxSize().then(blurModifier),
                                     contentScale = ContentScale.Crop
                                 )
                             } else {
@@ -311,11 +327,13 @@ fun DigitalIdCard(
                         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                             IdField(
                                 label = Translations.get(language, "date_of_birth"),
-                                value = if (privacyMode) Translations.get(language, "hidden_field") else if (dateOfBirth.isNotBlank()) dateOfBirth else "--/--/----"
+                                value = if (dateOfBirth.isNotBlank()) dateOfBirth else "--/--/----",
+                                modifier = blurModifier
                             )
                             IdField(
                                 label = Translations.get(language, "residence"),
-                                value = if (privacyMode) Translations.get(language, "hidden_field") else if (residency.isNotBlank()) residency else Translations.get(language, "not_specified")
+                                value = if (residency.isNotBlank()) residency else Translations.get(language, "not_specified"),
+                                modifier = blurModifier
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -404,14 +422,16 @@ fun DigitalIdCard(
                     
                     IdField(
                         label = Translations.get(language, "passport_number"),
-                        value = if (privacyMode) Translations.get(language, "hidden_field") else passportNumber?.ifEmpty { "--" } ?: "--"
+                        value = passportNumber?.ifEmpty { "--" } ?: "--",
+                        modifier = blurModifier
                     )
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     IdField(
                         label = Translations.get(language, "license_number"),
-                        value = if (privacyMode) Translations.get(language, "hidden_field") else licenseNumber?.ifEmpty { "--" } ?: "--"
+                        value = licenseNumber?.ifEmpty { "--" } ?: "--",
+                        modifier = blurModifier
                     )
                     
                     if (lastSyncTime != null) {
@@ -484,8 +504,8 @@ fun DigitalIdCard(
 }
 
 @Composable
-fun IdField(label: String, value: String, isMonospace: Boolean = false, textColor: Color = Color.White) {
-    Column {
+fun IdField(label: String, value: String, isMonospace: Boolean = false, textColor: Color = Color.White, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
         Text(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall,

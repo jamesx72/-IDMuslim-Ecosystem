@@ -61,6 +61,15 @@ import com.example.ui.viewmodels.EventViewModel
 import com.example.utils.QRCodeGenerator
 import com.example.ui.components.IslamicDateHeader
 
+import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
+import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
+import com.patrykandpatrick.vico.compose.chart.Chart
+import com.patrykandpatrick.vico.compose.chart.column.columnChart
+import com.patrykandpatrick.vico.core.entry.entryModelOf
+import com.patrykandpatrick.vico.core.axis.AxisPosition
+import com.patrykandpatrick.vico.core.axis.formatter.AxisValueFormatter
+
+
 object Translations {
     fun get(lang: String, key: String): String {
         val strings = mapOf(
@@ -195,7 +204,8 @@ fun ProfileScreen(
     viewModel: EventViewModel,
     onLogout: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onNavigateToEditProfile: () -> Unit = {}
+    onNavigateToEditProfile: () -> Unit = {},
+    onNavigateToDocumentScanner: () -> Unit = {}
 ) {
     val firebaseUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
     val cachedUserProfile by viewModel.cachedUserProfile.collectAsStateWithLifecycle()
@@ -231,6 +241,7 @@ fun ProfileScreen(
     val tickets by viewModel.getMemberTickets(memberId).collectAsState()
     val events by viewModel.allEvents.collectAsState()
     val isVerified by viewModel.isUserVerified.collectAsState()
+    val userActivityLogs by viewModel.userActivityLogs.collectAsState()
     val verificationStatus by viewModel.verificationStatus.collectAsState()
     val verificationStep by viewModel.verificationStep.collectAsState()
     val profilePhoto by viewModel.profilePhotoBase64.collectAsState()
@@ -627,7 +638,8 @@ fun ProfileScreen(
                         0 to Translations.get(language, "tab_id_card"),
                         1 to Translations.get(language, "tab_dashboard"),
                         2 to Translations.get(language, "tab_community"),
-                        3 to Translations.get(language, "tab_family")
+                        3 to Translations.get(language, "tab_family"),
+                        4 to Translations.get(language, "tab_activity")
                     )
                     tabOptions.forEach { (index, title) ->
                         val isSelected = selectedTab == index
@@ -1014,7 +1026,7 @@ fun ProfileScreen(
                             onUpdateShareLocation = { viewModel.updateShareLocation(it) },
                             onUpdateShareData = { viewModel.updateShareData(it) },
                             onUpdateAllowNotifications = { viewModel.updateAllowNotifications(it) },
-                            onDocumentUpload = { documentUploadLauncher.launch("image/*") },
+                            onDocumentUpload = { onNavigateToDocumentScanner() },
                             onStartVerification = { showVerificationDialog = true }
                         )
                     } else {
@@ -1114,6 +1126,150 @@ fun ProfileScreen(
                                 viewModel.removeFamilyMember(id)
                             }
                         )
+                    }
+                } else {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().height(300.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                Translations.get(language, "auth_required_history"),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                }
+            } else if (selectedTab == 4) {
+                if (isAuthenticated) {
+                    item {
+                        Text(
+                            text = Translations.get(language, "tab_activity"),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(20.dp)
+                        )
+                    }
+                    item {
+                        val chartEntryModel = remember(userActivityLogs) {
+                            val counts = mutableMapOf<Int, Int>()
+                            val calendar = java.util.Calendar.getInstance()
+                            userActivityLogs.forEach { log ->
+                                calendar.timeInMillis = log.timestamp
+                                val month = calendar.get(java.util.Calendar.MONTH)
+                                counts[month] = counts.getOrDefault(month, 0) + 1
+                            }
+                            val currentMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)
+                            
+                            entryModelOf(
+                                counts.getOrDefault((currentMonth - 5 + 12) % 12, 0),
+                                counts.getOrDefault((currentMonth - 4 + 12) % 12, 0),
+                                counts.getOrDefault((currentMonth - 3 + 12) % 12, 0),
+                                counts.getOrDefault((currentMonth - 2 + 12) % 12, 0),
+                                counts.getOrDefault((currentMonth - 1 + 12) % 12, 0),
+                                counts.getOrDefault(currentMonth, 0)
+                            )
+                        }
+                        
+                        val bottomAxisValueFormatter = remember {
+                            AxisValueFormatter<AxisPosition.Horizontal.Bottom> { value, _ ->
+                                val currentMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH)
+                                val months = listOf("Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc")
+                                val index = (currentMonth - 5 + value.toInt() + 12) % 12
+                                months[index % 12]
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Vérifications (6 derniers mois)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 16.dp)
+                                )
+                                Chart(
+                                    chart = columnChart(),
+                                    model = chartEntryModel,
+                                    startAxis = rememberStartAxis(),
+                                    bottomAxis = rememberBottomAxis(valueFormatter = bottomAxisValueFormatter),
+                                    modifier = Modifier.height(200.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (userActivityLogs.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(200.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Aucune activité récente.",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    } else {
+                        items(userActivityLogs) { log ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column {
+                                        Text(
+                                            text = log.actionType,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = log.description,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(log.timestamp)),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
                     item {

@@ -35,8 +35,9 @@ class MainActivity : FragmentActivity() {
         }
       }
 
+      val startRoute = if (intent?.action == "OPEN_DIGITAL_ID") "profile" else "auth"
       IDMuslimTheme {
-        IDMuslimApp()
+        IDMuslimApp(startRoute)
       }
     }
   }

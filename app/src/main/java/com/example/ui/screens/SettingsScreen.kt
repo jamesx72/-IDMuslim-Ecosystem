@@ -1,4 +1,5 @@
 package com.example.ui.screens
+import androidx.compose.material.icons.filled.Storage
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -395,6 +396,52 @@ fun SettingsScreen(
                             selected = language == "id",
                             onClick = { viewModel.updateLanguage("id") }
                         )
+                    }
+                }
+            }
+
+            // Data & Storage Section
+            var isClearingCache by remember { mutableStateOf(false) }
+            Text(
+                text = Translations.get(language, "data_storage") ?: "Data & Storage",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .clickable(enabled = !isClearingCache) {
+                        isClearingCache = true
+                        viewModel.clearCacheAndRefresh {
+                            isClearingCache = false
+                        }
+                    },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isClearingCache) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(androidx.compose.material.icons.Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(Translations.get(language, "clear_cache") ?: "Clear Cache & Refresh", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        Text(Translations.get(language, "clear_cache_desc") ?: "Resync local data from Firebase", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
