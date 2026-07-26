@@ -29,6 +29,10 @@ class SessionManager(context: Context) {
         private const val KEY_DOC_NUMBER = "doc_number"
         private const val KEY_ISSUING_COUNTRY = "issuing_country"
         private const val KEY_EXPIRY_DATE = "expiry_date"
+        private const val KEY_BIOMETRIC_LOCK = "biometric_lock_enabled"
+        private const val KEY_SCREEN_SECURITY = "screen_security_enabled"
+        private const val KEY_AUTO_LOCK_TIMEOUT = "auto_lock_timeout"
+        private const val KEY_SECURITY_AUDIT_LOGS = "security_audit_logs"
     }
 
     fun saveAuthToken(token: String) {
@@ -115,6 +119,46 @@ class SessionManager(context: Context) {
 
     fun getPrayerNotifications(): Boolean {
         return prefs.getBoolean("KEY_PRAYER_NOTIFICATIONS", true)
+    }
+
+    fun savePrayerCalculationMethod(methodId: Int) {
+        prefs.edit().putInt("KEY_PRAYER_CALCULATION_METHOD", methodId).apply()
+    }
+
+    fun getPrayerCalculationMethod(): Int {
+        return prefs.getInt("KEY_PRAYER_CALCULATION_METHOD", 12) // Default to 12 (UOIF France)
+    }
+
+    fun saveCachedMosques(jsonString: String) {
+        prefs.edit().putString("KEY_CACHED_MOSQUES_JSON", jsonString).apply()
+    }
+
+    fun getCachedMosques(): String? {
+        return prefs.getString("KEY_CACHED_MOSQUES_JSON", null)
+    }
+
+    fun clearMosqueCache() {
+        prefs.edit().remove("KEY_CACHED_MOSQUES_JSON").apply()
+    }
+
+    fun saveConfiguredMosque(name: String, address: String?) {
+        prefs.edit()
+            .putString("KEY_CONFIGURED_MOSQUE_NAME", name)
+            .putString("KEY_CONFIGURED_MOSQUE_ADDRESS", address ?: "")
+            .apply()
+    }
+
+    fun getConfiguredMosque(): Pair<String, String>? {
+        val name = prefs.getString("KEY_CONFIGURED_MOSQUE_NAME", null) ?: return null
+        val addr = prefs.getString("KEY_CONFIGURED_MOSQUE_ADDRESS", "") ?: ""
+        return Pair(name, addr)
+    }
+
+    fun clearConfiguredMosque() {
+        prefs.edit()
+            .remove("KEY_CONFIGURED_MOSQUE_NAME")
+            .remove("KEY_CONFIGURED_MOSQUE_ADDRESS")
+            .apply()
     }
 
     fun saveProfileFullName(fullName: String) {
@@ -298,5 +342,46 @@ class SessionManager(context: Context) {
     
     fun hasSeenTutorial(): Boolean {
         return prefs.getBoolean("KEY_HAS_SEEN_TUTORIAL", false)
+    }
+
+    fun saveBiometricLockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BIOMETRIC_LOCK, enabled).apply()
+        addSecurityAuditLog("Sécurité Biométrique", if (enabled) "Verrouillage biométrique activé" else "Verrouillage biométrique désactivé")
+    }
+
+    fun isBiometricLockEnabled(): Boolean {
+        return prefs.getBoolean(KEY_BIOMETRIC_LOCK, true)
+    }
+
+    fun saveScreenSecurityEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SCREEN_SECURITY, enabled).apply()
+        addSecurityAuditLog("Protection de l'Écran", if (enabled) "Capture d'écran bloquée pour la confidentialité" else "Capture d'écran autorisée")
+    }
+
+    fun isScreenSecurityEnabled(): Boolean {
+        return prefs.getBoolean(KEY_SCREEN_SECURITY, true)
+    }
+
+    fun saveAutoLockTimeout(timeout: String) {
+        prefs.edit().putString(KEY_AUTO_LOCK_TIMEOUT, timeout).apply()
+        addSecurityAuditLog("Délai d'Auto-verrouillage", "Nouveau délai réglé sur $timeout")
+    }
+
+    fun getAutoLockTimeout(): String {
+        return prefs.getString(KEY_AUTO_LOCK_TIMEOUT, "5 min") ?: "5 min"
+    }
+
+    fun addSecurityAuditLog(category: String, detail: String) {
+        val timestamp = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        val newLog = "[$timestamp] $category: $detail"
+        val currentLogs = getSecurityAuditLogs().toMutableList()
+        currentLogs.add(0, newLog)
+        val trimmed = currentLogs.take(20)
+        prefs.edit().putStringSet(KEY_SECURITY_AUDIT_LOGS, trimmed.toSet()).apply()
+    }
+
+    fun getSecurityAuditLogs(): List<String> {
+        val set = prefs.getStringSet(KEY_SECURITY_AUDIT_LOGS, emptySet()) ?: emptySet()
+        return set.toList().sortedDescending()
     }
 }

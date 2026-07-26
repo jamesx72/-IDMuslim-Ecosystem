@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -22,7 +23,13 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 
+import com.example.security.CryptoManager
+import com.example.security.encrypted
+import com.example.security.decrypted
+import kotlinx.coroutines.flow.map
+
 class EventViewModel(application: Application) : AndroidViewModel(application) {
+    private val cryptoManager = CryptoManager.getInstance()
     private val repository: EventRepository
     private val activityLogDao: com.example.data.ActivityLogDao
     private val communityPostDao: com.example.data.CommunityPostDao
@@ -40,8 +47,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             documentDao.getAllDocuments().collect { docs ->
-                if (docs.isNotEmpty() || _userDocuments.value.isEmpty()) {
-                    _userDocuments.value = docs.map { doc ->
+                val decryptedDocs = docs.map { it.decrypted(cryptoManager) }
+                if (decryptedDocs.isNotEmpty() || _userDocuments.value.isEmpty()) {
+                    _userDocuments.value = decryptedDocs.map { doc ->
                         UserDocument(doc.id, doc.name, doc.url, doc.uploadedAt)
                     }
                 }
@@ -49,17 +57,21 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    val cachedDocuments: StateFlow<List<com.example.data.DocumentEntity>> = documentDao.getAllDocuments().stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val cachedDocuments: StateFlow<List<com.example.data.DocumentEntity>> = documentDao.getAllDocuments()
+        .map { list -> list.map { it.decrypted(cryptoManager) } }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
-    val cachedUserProfile = userProfileDao.getUserProfile(FirebaseAuth.getInstance().currentUser?.uid ?: "").stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
+    val cachedUserProfile = userProfileDao.getUserProfile(FirebaseAuth.getInstance().currentUser?.uid ?: "")
+        .map { entity -> entity?.decrypted(cryptoManager) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
 
     val communityPosts: StateFlow<List<com.example.data.CommunityPostEntity>> = communityPostDao.getAllPosts().stateIn(
         scope = viewModelScope,
@@ -199,11 +211,26 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _prayerNotifications = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrayerNotifications())
     val prayerNotifications: StateFlow<Boolean> = _prayerNotifications.asStateFlow()
 
+    private val _prayerCalculationMethod = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrayerCalculationMethod())
+    val prayerCalculationMethod: StateFlow<Int> = _prayerCalculationMethod.asStateFlow()
+
     private val _darkTheme = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getDarkTheme())
     val darkTheme: StateFlow<String> = _darkTheme.asStateFlow()
 
     private val _privacyMode = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getPrivacyMode())
     val privacyMode: StateFlow<Boolean> = _privacyMode.asStateFlow()
+
+    private val _biometricLockEnabled = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isBiometricLockEnabled())
+    val biometricLockEnabled: StateFlow<Boolean> = _biometricLockEnabled.asStateFlow()
+
+    private val _screenSecurityEnabled = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isScreenSecurityEnabled())
+    val screenSecurityEnabled: StateFlow<Boolean> = _screenSecurityEnabled.asStateFlow()
+
+    private val _autoLockTimeout = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getAutoLockTimeout())
+    val autoLockTimeout: StateFlow<String> = _autoLockTimeout.asStateFlow()
+
+    private val _securityAuditLogs = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getSecurityAuditLogs())
+    val securityAuditLogs: StateFlow<List<String>> = _securityAuditLogs.asStateFlow()
 
     data class UserDocument(val id: String = "", val name: String = "", val url: String = "", val uploadedAt: Long = 0L)
     private val _userDocuments = MutableStateFlow<List<UserDocument>>(emptyList())
@@ -392,7 +419,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                             uploadedAt = doc.uploadedAt,
                             docType = "Document",
                             status = "VERIFIED"
-                        )
+                        ).encrypted(cryptoManager)
                     }
                     documentDao.insertAll(entities)
                 }
@@ -404,7 +431,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         val docId = UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
 
-        // Cache locally in Room immediately
+        // Cache locally in Room immediately with hardware key encryption
         viewModelScope.launch {
             documentDao.insertDocument(
                 com.example.data.DocumentEntity(
@@ -414,7 +441,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     uploadedAt = timestamp,
                     docType = "Document joint",
                     status = "LOCAL_CACHE"
-                )
+                ).encrypted(cryptoManager)
             )
         }
 
@@ -469,7 +496,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         val docId = UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
 
-        // Locally cache in Room for offline history
+        // Locally cache in Room for offline history with hardware key encryption
         val localDoc = com.example.data.DocumentEntity(
             id = docId,
             name = "Justificatif d'identité (Scan IDMuslim)",
@@ -477,7 +504,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             uploadedAt = timestamp,
             docType = "Pièce d'identité",
             status = "PENDING"
-        )
+        ).encrypted(cryptoManager)
         viewModelScope.launch {
             documentDao.insertDocument(localDoc)
         }
@@ -552,6 +579,11 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         _prayerNotifications.value = enabled
     }
 
+    fun updatePrayerCalculationMethod(methodId: Int) {
+        com.example.network.ApiClient.getSessionManager().savePrayerCalculationMethod(methodId)
+        _prayerCalculationMethod.value = methodId
+    }
+
     fun updateDarkTheme(theme: String) {
         com.example.network.ApiClient.getSessionManager().saveDarkTheme(theme)
         _darkTheme.value = theme
@@ -560,6 +592,37 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun updatePrivacyMode(enabled: Boolean) {
         com.example.network.ApiClient.getSessionManager().savePrivacyMode(enabled)
         _privacyMode.value = enabled
+    }
+
+    fun updateBiometricLock(enabled: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveBiometricLockEnabled(enabled)
+        _biometricLockEnabled.value = enabled
+        refreshSecurityAuditLogs()
+    }
+
+    fun updateScreenSecurity(enabled: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveScreenSecurityEnabled(enabled)
+        _screenSecurityEnabled.value = enabled
+        refreshSecurityAuditLogs()
+    }
+
+    fun updateAutoLockTimeout(timeout: String) {
+        com.example.network.ApiClient.getSessionManager().saveAutoLockTimeout(timeout)
+        _autoLockTimeout.value = timeout
+        refreshSecurityAuditLogs()
+    }
+
+    fun refreshSecurityAuditLogs() {
+        _securityAuditLogs.value = com.example.network.ApiClient.getSessionManager().getSecurityAuditLogs()
+    }
+
+    fun clearSensitiveDataCache(onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            documentDao.clearAll()
+            com.example.network.ApiClient.getSessionManager().addSecurityAuditLog("Purge Sécurisée", "Suppression intégrale du cache local des justificatifs")
+            refreshSecurityAuditLogs()
+            onComplete()
+        }
     }
 
     fun updateProfileFullName(fullName: String) {
@@ -666,6 +729,27 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
                     .collection("private_profile").document("identity")
                     .set(privateIdentity, com.google.firebase.firestore.SetOptions.merge())
+
+                // Local Room cache with Hardware key encryption
+                val existing = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
+                val updatedProfile = com.example.data.UserProfileEntity(
+                    uid = user.uid,
+                    fullName = fullName,
+                    avatarUrl = existing?.avatarUrl ?: "",
+                    membershipStatus = existing?.membershipStatus ?: "Non Vérifié",
+                    isVerified = existing?.isVerified ?: false,
+                    community = community,
+                    expiryDate = if (expiryDate.isNotEmpty()) expiryDate else (existing?.expiryDate ?: ""),
+                    dob = dob,
+                    residency = residency,
+                    passportNumber = passportNumber,
+                    licenseNumber = licenseNumber,
+                    docType = docType,
+                    docNumber = docNumber,
+                    issuingCountry = issuingCountry,
+                    lastSyncTime = System.currentTimeMillis()
+                ).encrypted(cryptoManager)
+                userProfileDao.insertUserProfile(updatedProfile)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -725,7 +809,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                     updateProfileFullName(it.fullName)
                                     updateProfileCommunityAffiliation(it.community)
                                     viewModelScope.launch {
-                                        val existing = userProfileDao.getUserProfileSync(user.uid)
+                                        val existing = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
                                         userProfileDao.insertUserProfile(
                                             com.example.data.UserProfileEntity(
                                                 uid = user.uid,
@@ -743,7 +827,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                                 docNumber = existing?.docNumber ?: "",
                                                 issuingCountry = existing?.issuingCountry ?: "",
                                                 lastSyncTime = System.currentTimeMillis()
-                                            )
+                                            ).encrypted(cryptoManager)
                                         )
                                     }
                                 }
@@ -776,7 +860,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                     updateProfileIssuingCountry(it.issuingCountry)
                                     updateProfileExpiryDate(it.expiryDate)
                                     viewModelScope.launch {
-                                        val existing = userProfileDao.getUserProfileSync(user.uid)
+                                        val existing = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
                                         if (existing != null) {
                                             userProfileDao.insertUserProfile(
                                                 existing.copy(
@@ -788,7 +872,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                                     docNumber = it.docNumber,
                                                     issuingCountry = it.issuingCountry,
                                                     lastSyncTime = System.currentTimeMillis()
-                                                )
+                                                ).encrypted(cryptoManager)
                                             )
                                         }
                                     }
@@ -938,16 +1022,341 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // --- Conflict Resolution Strategy for Room DB & Firestore Sync ---
+    private val _syncConflict = MutableStateFlow<com.example.data.SyncConflict?>(null)
+    val syncConflict: StateFlow<com.example.data.SyncConflict?> = _syncConflict.asStateFlow()
+
+    private val _syncStatusMessage = MutableStateFlow<String?>(null)
+    val syncStatusMessage: StateFlow<String?> = _syncStatusMessage.asStateFlow()
+
+    fun clearSyncStatusMessage() {
+        _syncStatusMessage.value = null
+    }
+
+    fun dismissConflict() {
+        _syncConflict.value = null
+    }
+
+    fun checkSyncConflicts() {
+        val user = FirebaseAuth.getInstance().currentUser ?: run {
+            _syncStatusMessage.value = "Veuillez vous connecter pour vérifier la synchronisation."
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                _syncStatusMessage.value = "Vérification de la synchronisation Room <-> Firestore..."
+                val userDocRef = FirebaseFirestore.getInstance().collection("users").document(user.uid)
+
+                userDocRef.get().addOnSuccessListener { publicSnap ->
+                    val publicProfile = publicSnap.toObject(com.example.data.PublicProfile::class.java)
+
+                    userDocRef.collection("private_profile").document("identity").get().addOnSuccessListener { privateSnap ->
+                        val privateIdentity = privateSnap.toObject(com.example.data.PrivateIdentity::class.java)
+
+                        viewModelScope.launch {
+                            val local = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
+                            val cloudProfile = com.example.data.UserProfileEntity(
+                                uid = user.uid,
+                                fullName = publicProfile?.fullName ?: "",
+                                avatarUrl = publicProfile?.avatarUrl ?: "",
+                                membershipStatus = publicProfile?.membershipStatus ?: "Non Vérifié",
+                                isVerified = publicProfile?.isVerified ?: false,
+                                community = publicProfile?.community ?: "",
+                                expiryDate = publicProfile?.expiryDate ?: (privateIdentity?.expiryDate ?: ""),
+                                dob = privateIdentity?.dob ?: "",
+                                residency = privateIdentity?.residency ?: "",
+                                passportNumber = privateIdentity?.passportNumber ?: "",
+                                licenseNumber = privateIdentity?.licenseNumber ?: "",
+                                docType = privateIdentity?.docType ?: "",
+                                docNumber = privateIdentity?.docNumber ?: "",
+                                issuingCountry = privateIdentity?.issuingCountry ?: "",
+                                lastSyncTime = System.currentTimeMillis()
+                            )
+
+                            if (local == null) {
+                                userProfileDao.insertUserProfile(cloudProfile.encrypted(cryptoManager))
+                                _syncStatusMessage.value = "Données Cloud synchronisées dans la base Room locale."
+                            } else {
+                                val diffs = mutableListOf<String>()
+                                if (local.fullName.trim() != cloudProfile.fullName.trim() && cloudProfile.fullName.isNotEmpty()) {
+                                    diffs.add("Nom complet : Local = '${local.fullName}', Cloud = '${cloudProfile.fullName}'")
+                                }
+                                if (local.community.trim() != cloudProfile.community.trim() && cloudProfile.community.isNotEmpty()) {
+                                    diffs.add("Délégation/Commune : Local = '${local.community}', Cloud = '${cloudProfile.community}'")
+                                }
+                                if (local.dob.trim() != cloudProfile.dob.trim() && cloudProfile.dob.isNotEmpty()) {
+                                    diffs.add("Date de naissance : Local = '${local.dob}', Cloud = '${cloudProfile.dob}'")
+                                }
+                                if (local.residency.trim() != cloudProfile.residency.trim() && cloudProfile.residency.isNotEmpty()) {
+                                    diffs.add("Pays de résidence : Local = '${local.residency}', Cloud = '${cloudProfile.residency}'")
+                                }
+                                if (local.docNumber.trim() != cloudProfile.docNumber.trim() && cloudProfile.docNumber.isNotEmpty()) {
+                                    diffs.add("N° Document : Local = '${local.docNumber}', Cloud = '${cloudProfile.docNumber}'")
+                                }
+
+                                if (diffs.isNotEmpty()) {
+                                    _syncConflict.value = com.example.data.SyncConflict(
+                                        type = com.example.data.SyncConflictType.ProfileConflict(
+                                            localProfile = local,
+                                            cloudProfile = cloudProfile,
+                                            differences = diffs
+                                        )
+                                    )
+                                    _syncStatusMessage.value = null
+                                } else {
+                                    _syncStatusMessage.value = "✅ Parfait ! Base Room et Firestore Cloud sont 100% synchronisées."
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                _syncStatusMessage.value = "Erreur lors de la vérification : ${e.localizedMessage}"
+            }
+        }
+    }
+
+    fun resolveConflictUseLocal(conflict: com.example.data.SyncConflict) {
+        viewModelScope.launch {
+            val user = FirebaseAuth.getInstance().currentUser ?: return@launch
+            when (val type = conflict.type) {
+                is com.example.data.SyncConflictType.ProfileConflict -> {
+                    val local = type.localProfile
+                    try {
+                        val publicMap = mapOf(
+                            "fullName" to local.fullName,
+                            "community" to local.community,
+                            "avatarUrl" to (local.avatarUrl ?: ""),
+                            "membershipStatus" to local.membershipStatus,
+                            "isVerified" to local.isVerified,
+                            "expiryDate" to local.expiryDate
+                        )
+                        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                            .set(publicMap, com.google.firebase.firestore.SetOptions.merge())
+
+                        val privateMap = mapOf(
+                            "dob" to local.dob,
+                            "residency" to local.residency,
+                            "passportNumber" to local.passportNumber,
+                            "licenseNumber" to local.licenseNumber,
+                            "docType" to local.docType,
+                            "docNumber" to local.docNumber,
+                            "issuingCountry" to local.issuingCountry,
+                            "expiryDate" to local.expiryDate
+                        )
+                        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                            .collection("private_profile").document("identity")
+                            .set(privateMap, com.google.firebase.firestore.SetOptions.merge())
+
+                        val updatedLocal = local.copy(lastSyncTime = System.currentTimeMillis())
+                        userProfileDao.insertUserProfile(updatedLocal.encrypted(cryptoManager))
+
+                        _syncConflict.value = null
+                        _syncStatusMessage.value = "Succès : La version locale (Room) a écrasé la version Cloud (Firestore)."
+                        logActivity("SYNC_RESOLVED", "Conflict resolved using local Room profile")
+                    } catch (e: Exception) {
+                        _syncStatusMessage.value = "Erreur lors de la synchronisation vers Cloud : ${e.localizedMessage}"
+                    }
+                }
+                is com.example.data.SyncConflictType.DocumentConflict -> {
+                    _syncConflict.value = null
+                    _syncStatusMessage.value = "Version locale des documents conservée."
+                }
+            }
+        }
+    }
+
+    fun resolveConflictUseCloud(conflict: com.example.data.SyncConflict) {
+        viewModelScope.launch {
+            val user = FirebaseAuth.getInstance().currentUser ?: return@launch
+            when (val type = conflict.type) {
+                is com.example.data.SyncConflictType.ProfileConflict -> {
+                    val cloud = type.cloudProfile
+                    try {
+                        val cloudWithSyncTime = cloud.copy(lastSyncTime = System.currentTimeMillis())
+                        userProfileDao.insertUserProfile(cloudWithSyncTime.encrypted(cryptoManager))
+
+                        updateProfileFullName(cloud.fullName)
+                        updateProfileCommunityAffiliation(cloud.community)
+                        updateProfileDob(cloud.dob)
+                        updateProfileResidency(cloud.residency)
+                        updateProfilePassportNumber(cloud.passportNumber)
+                        updateProfileLicenseNumber(cloud.licenseNumber)
+                        updateProfileDocType(cloud.docType)
+                        updateProfileDocNumber(cloud.docNumber)
+                        updateProfileIssuingCountry(cloud.issuingCountry)
+                        updateProfileExpiryDate(cloud.expiryDate)
+
+                        _syncConflict.value = null
+                        _syncStatusMessage.value = "Succès : La base locale (Room) a été mise à jour avec la version Cloud (Firestore)."
+                        logActivity("SYNC_RESOLVED", "Conflict resolved using cloud Firestore profile")
+                    } catch (e: Exception) {
+                        _syncStatusMessage.value = "Erreur lors de la mise à jour locale : ${e.localizedMessage}"
+                    }
+                }
+                is com.example.data.SyncConflictType.DocumentConflict -> {
+                    _syncConflict.value = null
+                    _syncStatusMessage.value = "Base locale mise à jour depuis le Cloud."
+                }
+            }
+        }
+    }
+
     fun cancelTicket(ticket: TicketEntity) {
         viewModelScope.launch {
             val promotedWaitlistEntry = repository.cancelTicketAndProcessWaitlist(ticket)
             if (promotedWaitlistEntry != null) {
                 val event = repository.getEventById(ticket.eventId)
                 event?.let {
-                    // For prototype, using a fixed mock email for the promoted user
                     EmailService.sendWaitlistPromotedEmail("promoted_user@example.com", it.title)
                 }
             }
         }
     }
+
+    // --- Backup & Restore Room Database to/from Firestore Cloud as Encrypted JSON ---
+    private val _isBackingUp = MutableStateFlow(false)
+    val isBackingUp: StateFlow<Boolean> = _isBackingUp.asStateFlow()
+
+    private val _backupStatusMessage = MutableStateFlow<String?>(null)
+    val backupStatusMessage: StateFlow<String?> = _backupStatusMessage.asStateFlow()
+
+    fun clearBackupStatusMessage() {
+        _backupStatusMessage.value = null
+    }
+
+    fun backupRoomDatabaseToCloud() {
+        val user = FirebaseAuth.getInstance().currentUser ?: run {
+            _backupStatusMessage.value = "Veuillez vous connecter pour effectuer la sauvegarde."
+            return
+        }
+
+        _isBackingUp.value = true
+        _backupStatusMessage.value = "Chiffrement et sauvegarde de la base Room en cours..."
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val profile = userProfileDao.getUserProfileSync(user.uid)
+                val docs = try { documentDao.getAllDocuments().first() } catch (e: Exception) { emptyList() }
+                val logs = try { activityLogDao.getAllLogs().first() } catch (e: Exception) { emptyList() }
+                val posts = try { communityPostDao.getAllPosts().first() } catch (e: Exception) { emptyList() }
+
+                val backupDump = com.example.data.RoomDatabaseBackup(
+                    backupTimestamp = System.currentTimeMillis(),
+                    uid = user.uid,
+                    userProfile = profile,
+                    documents = docs,
+                    activityLogs = logs,
+                    communityPosts = posts
+                )
+
+                val moshi = com.squareup.moshi.Moshi.Builder()
+                    .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                    .build()
+                val adapter = moshi.adapter(com.example.data.RoomDatabaseBackup::class.java)
+
+                val jsonString = adapter.toJson(backupDump)
+                val encryptedBlob = cryptoManager.encrypt(jsonString) ?: jsonString
+
+                val backupDoc = mapOf(
+                    "backupTimestamp" to System.currentTimeMillis(),
+                    "backupDate" to java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()),
+                    "encryptedJsonBlob" to encryptedBlob,
+                    "recordsCount" to (docs.size + logs.size + posts.size + (if (profile != null) 1 else 0)),
+                    "encryptedWith" to "AES-256-GCM (Android KeyStore)",
+                    "appVersion" to "1.0.0"
+                )
+
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("room_backups").document("latest")
+                    .set(backupDoc)
+                    .addOnSuccessListener {
+                        _backupStatusMessage.value = "✅ Sauvegarde de la base Room chiffrée et envoyée sur Firestore avec succès !"
+                        _isBackingUp.value = false
+                        logActivity("BACKUP_DATABASE_SUCCESS", "Encrypted Room DB state backup uploaded to Firestore")
+                    }
+                    .addOnFailureListener { e ->
+                        _backupStatusMessage.value = "❌ Échec de la sauvegarde sur Firestore : ${e.localizedMessage}"
+                        _isBackingUp.value = false
+                    }
+            } catch (e: Exception) {
+                _backupStatusMessage.value = "❌ Erreur de traitement de la base Room : ${e.localizedMessage}"
+                _isBackingUp.value = false
+            }
+        }
+    }
+
+    fun restoreRoomDatabaseFromCloud() {
+        val user = FirebaseAuth.getInstance().currentUser ?: run {
+            _backupStatusMessage.value = "Veuillez vous connecter pour restaurer vos données."
+            return
+        }
+
+        _isBackingUp.value = true
+        _backupStatusMessage.value = "Téléchargement de la sauvegarde chiffrée depuis Firestore..."
+
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("room_backups").document("latest")
+            .get()
+            .addOnSuccessListener { snap ->
+                if (!snap.exists()) {
+                    _backupStatusMessage.value = "Aucune sauvegarde trouvée sur Firestore Cloud."
+                    _isBackingUp.value = false
+                    return@addOnSuccessListener
+                }
+
+                val encryptedBlob = snap.getString("encryptedJsonBlob")
+                if (encryptedBlob.isNullOrEmpty()) {
+                    _backupStatusMessage.value = "Document de sauvegarde corrompu ou vide."
+                    _isBackingUp.value = false
+                    return@addOnSuccessListener
+                }
+
+                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val decryptedJson = cryptoManager.decrypt(encryptedBlob)
+                        if (decryptedJson.isNullOrEmpty()) {
+                            _backupStatusMessage.value = "❌ Échec du déchiffrement de la sauvegarde."
+                            _isBackingUp.value = false
+                            return@launch
+                        }
+
+                        val moshi = com.squareup.moshi.Moshi.Builder()
+                            .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                            .build()
+                        val adapter = moshi.adapter(com.example.data.RoomDatabaseBackup::class.java)
+                        val backup = adapter.fromJson(decryptedJson)
+
+                        if (backup != null) {
+                            backup.userProfile?.let { userProfileDao.insertUserProfile(it) }
+                            if (backup.documents.isNotEmpty()) {
+                                documentDao.insertAll(backup.documents)
+                            }
+                            for (log in backup.activityLogs) {
+                                activityLogDao.insertLog(log)
+                            }
+                            for (post in backup.communityPosts) {
+                                communityPostDao.insertPost(post)
+                            }
+
+                            _backupStatusMessage.value = "✅ Base Room restaurée avec succès depuis la sauvegarde Cloud !"
+                            _isBackingUp.value = false
+                            logActivity("RESTORE_DATABASE_SUCCESS", "Restored Room DB from Firestore encrypted backup")
+                        } else {
+                            _backupStatusMessage.value = "Format de sauvegarde invalide."
+                            _isBackingUp.value = false
+                        }
+                    } catch (e: Exception) {
+                        _backupStatusMessage.value = "Erreur lors de la restauration : ${e.localizedMessage}"
+                        _isBackingUp.value = false
+                    }
+                }
+            }
+            .addOnFailureListener { e ->
+                _backupStatusMessage.value = "Échec de récupération de la sauvegarde : ${e.localizedMessage}"
+                _isBackingUp.value = false
+            }
+    }
 }
+

@@ -40,14 +40,26 @@ fun PrayerTimesSection() {
         LocationServices.getFusedLocationProviderClient(context) 
     }
 
+    val sessionManager = remember { com.example.network.ApiClient.getSessionManager() }
+    val calculationMethod = remember { sessionManager.getPrayerCalculationMethod() }
+    val prayerNotifications = remember { sessionManager.getPrayerNotifications() }
+
     val fetchPrayerTimes = { lat: Double, lng: Double ->
         coroutineScope.launch {
             isLoading = true
             try {
-                val response = RetrofitClient.api.getPrayerTimes(lat, lng)
+                val response = RetrofitClient.api.getPrayerTimes(lat, lng, method = sessionManager.getPrayerCalculationMethod())
                 prayerTimings = response.data?.timings
                 dateInfo = response.data?.date
                 locationError = null
+
+                response.data?.timings?.let { timings ->
+                    if (sessionManager.getPrayerNotifications()) {
+                        com.example.notifications.PrayerNotificationScheduler.schedulePrayerNotifications(context, timings)
+                    } else {
+                        com.example.notifications.PrayerNotificationScheduler.cancelAllPrayerNotifications(context)
+                    }
+                }
             } catch (e: Exception) {
                 locationError = "Failed to fetch prayer times: ${e.message}"
             } finally {
@@ -244,10 +256,28 @@ fun PrayerTimesSection() {
 @Composable
 fun PrayerRow(name: String, time: String, isNext: Boolean = false) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(name, fontWeight = if (isNext) FontWeight.Bold else FontWeight.SemiBold, color = if (isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-        Text(time, color = if (isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (isNext) FontWeight.Bold else FontWeight.Normal)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.NotificationsActive,
+                contentDescription = "Rappel actif",
+                tint = if (isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                name,
+                fontWeight = if (isNext) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        }
+        Text(
+            time,
+            color = if (isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (isNext) FontWeight.Bold else FontWeight.Normal
+        )
     }
 }

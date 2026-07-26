@@ -94,6 +94,25 @@ fun IDMuslimApp(startRoute: String = "auth") {
         else -> androidx.compose.foundation.isSystemInDarkTheme()
     }
 
+    val syncConflict by eventViewModel.syncConflict.collectAsState()
+    val syncStatusMessage by eventViewModel.syncStatusMessage.collectAsState()
+
+    syncStatusMessage?.let { msg ->
+        androidx.compose.runtime.LaunchedEffect(msg) {
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+            eventViewModel.clearSyncStatusMessage()
+        }
+    }
+
+    syncConflict?.let { conflict ->
+        com.example.ui.components.SyncConflictDialog(
+            conflict = conflict,
+            onUseLocal = { eventViewModel.resolveConflictUseLocal(it) },
+            onUseCloud = { eventViewModel.resolveConflictUseCloud(it) },
+            onDismiss = { eventViewModel.dismissConflict() }
+        )
+    }
+
     com.example.ui.theme.IDMuslimTheme(darkTheme = useDarkTheme) {
         Scaffold(
         bottomBar = {

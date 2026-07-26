@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.AccountCircle
@@ -24,6 +25,17 @@ import androidx.compose.ui.unit.dp
 import com.example.ui.viewmodels.EventViewModel
 import com.example.ui.locales.Translations
 
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.PhonelinkLock
+import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Close
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -33,7 +45,14 @@ fun SettingsScreen(
 ) {
     val language by viewModel.language.collectAsState()
     val prayerNotifications by viewModel.prayerNotifications.collectAsState()
+    val prayerCalculationMethod by viewModel.prayerCalculationMethod.collectAsState()
     val privacyMode by viewModel.privacyMode.collectAsState()
+    val biometricLockEnabled by viewModel.biometricLockEnabled.collectAsState()
+    val screenSecurityEnabled by viewModel.screenSecurityEnabled.collectAsState()
+    val autoLockTimeout by viewModel.autoLockTimeout.collectAsState()
+    val securityAuditLogs by viewModel.securityAuditLogs.collectAsState()
+    val isBackingUp by viewModel.isBackingUp.collectAsState()
+    val backupStatusMessage by viewModel.backupStatusMessage.collectAsState()
 
     Scaffold(
         topBar = {
@@ -103,34 +122,99 @@ fun SettingsScreen(
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var methodExpanded by remember { mutableStateOf(false) }
+            val calculationMethods = remember {
+                listOf(
+                    12 to "UOIF - France (12°)",
+                    2 to "ISNA - Amérique du Nord",
+                    3 to "Ligue Islamique Mondiale (MWL)",
+                    4 to "Oumm al-Qura (La Mecque)",
+                    5 to "Autorité Égyptienne",
+                    1 to "Karachi (Univ. Sciences Islamiques)",
+                    13 to "Diyanet (Turquie)"
+                )
+            }
+
             Card(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text(Translations.get(language, "prayer_times"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Text(Translations.get(language, "receive_alerts"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text(Translations.get(language, "prayer_times"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(Translations.get(language, "receive_alerts"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = prayerNotifications,
+                            onCheckedChange = { enabled ->
+                                viewModel.updatePrayerNotifications(enabled)
+                                if (!enabled) {
+                                    com.example.notifications.PrayerNotificationScheduler.cancelAllPrayerNotifications(context)
+                                }
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Méthode de calcul des heures",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { methodExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            val selectedName = calculationMethods.find { it.first == prayerCalculationMethod }?.second ?: "UOIF - France (12°)"
+                            Text(selectedName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Sélectionner méthode")
+                        }
+
+                        DropdownMenu(
+                            expanded = methodExpanded,
+                            onDismissRequest = { methodExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.85f)
+                        ) {
+                            calculationMethods.forEach { (id, name) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            name,
+                                            fontWeight = if (id == prayerCalculationMethod) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (id == prayerCalculationMethod) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    onClick = {
+                                        viewModel.updatePrayerCalculationMethod(id)
+                                        methodExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
-                    Switch(
-                        checked = prayerNotifications,
-                        onCheckedChange = { viewModel.updatePrayerNotifications(it) }
-                    )
                 }
             }
 
-            // Privacy Section
+            // Privacy & Confidentiality Section
             Text(
                 text = Translations.get(language, "privacy"),
                 style = MaterialTheme.typography.titleMedium,
@@ -144,29 +228,326 @@ fun SettingsScreen(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text(Translations.get(language, "privacy_mode"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Text(Translations.get(language, "privacy_mode_desc"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Privacy Mode Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.VisibilityOff, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text(Translations.get(language, "privacy_mode"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(Translations.get(language, "privacy_mode_desc"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = privacyMode,
+                            onCheckedChange = { viewModel.updatePrivacyMode(it) }
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    // Biometric Lock Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text("Verrouillage Biométrique / PIN", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text("Sécurise l'accès aux justificatifs et pièces d'identité", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = biometricLockEnabled,
+                            onCheckedChange = { viewModel.updateBiometricLock(it) }
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    // Anti-Screenshot Screen Security Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.PhonelinkLock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text("Protection Anti-Capture d'Écran", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text("Empêche les captures d'écran des données sensibles", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = screenSecurityEnabled,
+                            onCheckedChange = { viewModel.updateScreenSecurity(it) }
+                        )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    // Auto Lock Timeout Dropdown
+                    var timeoutExpanded by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text("Délai d'Auto-Verrouillage", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text("Vérouille l'application après inactivité", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Box {
+                            OutlinedButton(onClick = { timeoutExpanded = true }) {
+                                Text(autoLockTimeout)
+                            }
+                            DropdownMenu(
+                                expanded = timeoutExpanded,
+                                onDismissRequest = { timeoutExpanded = false }
+                            ) {
+                                listOf("Immédiat", "1 min", "5 min", "15 min", "Jamais").forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option) },
+                                        onClick = {
+                                            viewModel.updateAutoLockTimeout(option)
+                                            timeoutExpanded = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
-                    Switch(
-                        checked = privacyMode,
-                        onCheckedChange = { viewModel.updatePrivacyMode(it) }
-                    )
                 }
             }
 
-            // Theme Section
+            // Room <-> Firestore Sync & Cloud Backup Card
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Sauvegarde Cloud & Synchronisation Room", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                            Text("Chiffrez et sauvegardez l'état complet de votre base de données locale Room sur Firestore sous forme de blob JSON sécurisé.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.backupRoomDatabaseToCloud() },
+                            enabled = !isBackingUp,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (isBackingUp) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                            } else {
+                                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Sauvegarder", style = MaterialTheme.typography.bodyMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.restoreRoomDatabaseFromCloud() },
+                            enabled = !isBackingUp,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Restauration", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = { viewModel.checkSyncConflicts() },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Vérifier Sync / Résoudre Conflits")
+                    }
+
+                    backupStatusMessage?.let { msg ->
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    msg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = { viewModel.clearBackupStatusMessage() },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Fermer message",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Data Protection Shield & Audit Section
+            Text(
+                text = "Sécurité des Données & Chiffrement",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            var showAuditDialog by remember { mutableStateOf(false) }
+            var showPurgeConfirmDialog by remember { mutableStateOf(false) }
+            var isPurging by remember { mutableStateOf(false) }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Shield, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF10B981))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Chiffrement Client Android KeyStore (AES-256-GCM)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                            Text("Les données d'identité et pièces justificatives dans la base de données Room sont chiffrées localement à l'aide d'une clé matérielle sécurisée.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showAuditDialog = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.ListAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Journal d'Audit", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showPurgeConfirmDialog = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Purge Sécurisée", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+
+            if (showAuditDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAuditDialog = false },
+                    title = { Text("Journal de Sécurité") },
+                    text = {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 300.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            if (securityAuditLogs.isEmpty()) {
+                                Text("Aucun événement de sécurité enregistré.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                securityAuditLogs.forEach { log ->
+                                    Text(
+                                        text = log,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showAuditDialog = false }) {
+                            Text("Fermer")
+                        }
+                    }
+                )
+            }
+
+            if (showPurgeConfirmDialog) {
+                AlertDialog(
+                    onDismissRequest = { showPurgeConfirmDialog = false },
+                    title = { Text("Purge du Cache Sécurisé") },
+                    text = { Text("Êtes-vous sûr de vouloir purger tous les justificatifs et pièces d'identité enregistrés dans le cache local ? Vos données en ligne restent intactes.") },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                isPurging = true
+                                viewModel.clearSensitiveDataCache {
+                                    isPurging = false
+                                    showPurgeConfirmDialog = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            if (isPurging) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onError)
+                            } else {
+                                Text("Purger maintenant")
+                            }
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPurgeConfirmDialog = false }) {
+                            Text(Translations.get(language, "cancel"))
+                        }
+                    }
+                )
+            }
+
+            // MFA & Authentication Section
             Text(
                 text = Translations.get(language, "security_mfa"),
                 style = MaterialTheme.typography.titleMedium,
@@ -193,7 +574,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) // Used Settings icon as placeholder
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
                             Text(Translations.get(language, "mfa_enrollment"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
