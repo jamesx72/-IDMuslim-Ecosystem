@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import android.widget.Toast
@@ -15,10 +16,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Mosque
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.example.BuildConfig
 import com.example.data.Circle
@@ -40,6 +46,22 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.launch
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+
+data class CommunityCenterPartner(
+    val id: String,
+    val name: String,
+    val address: String,
+    val type: String,
+    val latitude: Double,
+    val longitude: Double,
+    val phone: String = "+33 1 40 00 00 00",
+    val status: String = "Partenaire Agréé IDMuslim (Niveau 3)"
+)
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -57,6 +79,17 @@ fun MosquesSection() {
     var locationError by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var isCachedData by remember { mutableStateOf(false) }
+    var userLocation by remember { mutableStateOf<Location?>(null) }
+    var showMapView by remember { mutableStateOf(false) }
+
+    val authorizedPartners = remember {
+        listOf(
+            CommunityCenterPartner("1", "Grande Mosquée & Centre Communautaire Central", "2 Bis Rue de la Mosquée, 75005 Paris", "Centre Communautaire & Partenaire d'Identité Agréé", 48.8418, 2.3552, "+33 1 45 35 97 33"),
+            CommunityCenterPartner("2", "Espace Communautaire Lyon Métropole", "145 Boulevard Pinel, 69008 Lyon", "Partenaire de Vérification Physique Agréé", 45.7360, 4.8870, "+33 4 78 76 00 23"),
+            CommunityCenterPartner("3", "Centre Islamique & Tiers de Confiance Marseille", "8 Rue Saint-Bazile, 13001 Marseille", "Centre Agréé Validation Biométrique", 43.2995, 5.3840, "+33 4 91 50 12 89"),
+            CommunityCenterPartner("4", "Maison Communautaire & Culturelle Lille", "30 Rue de Marquillies, 59000 Lille", "Partenaire d'Identité & Guichet Agréé", 50.6200, 3.0450, "+33 3 20 54 88 12")
+        )
+    }
 
     val fusedLocationClient = remember(context) { 
         LocationServices.getFusedLocationProviderClient(context) 
@@ -128,6 +161,7 @@ fun MosquesSection() {
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                 if (location != null) {
+                    userLocation = location
                     fetchMosques(location.latitude, location.longitude)
                 } else if (mosques == null) {
                     locationError = "Position indisponible."
@@ -184,15 +218,50 @@ fun MosquesSection() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Mosque, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Mosquées à proximité (5km)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Lieux & Partenaires Agréés", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
 
-            IconButton(
-                onClick = { requestLocation() },
-                enabled = !isLoading
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Actualiser les mosquées", tint = MaterialTheme.colorScheme.primary)
+            Row {
+                IconButton(
+                    onClick = { showMapView = !showMapView }
+                ) {
+                    Icon(
+                        imageVector = if (showMapView) Icons.Default.List else Icons.Default.Map,
+                        contentDescription = if (showMapView) "Vue Liste" else "Carte OpenStreetMap",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                IconButton(
+                    onClick = { requestLocation() },
+                    enabled = !isLoading
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Actualiser les lieux", tint = MaterialTheme.colorScheme.primary)
+                }
             }
+        }
+
+        // Mode selector row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = !showMapView,
+                onClick = { showMapView = false },
+                label = { Text("Vue Liste") },
+                leadingIcon = { Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = showMapView,
+                onClick = { showMapView = true },
+                label = { Text("Carte OpenStreetMap") },
+                leadingIcon = { Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                modifier = Modifier.weight(1f)
+            )
         }
 
         // Configured Mosque Card Banner if set
@@ -225,111 +294,268 @@ fun MosquesSection() {
             }
         }
 
-        // Clear Mosque Cache Button
-        OutlinedButton(
-            onClick = clearCacheAction,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Effacer le cache de la mosquée à proximité")
-        }
+        if (showMapView) {
+            // Interactive osmdroid Map View
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(320.dp)
+                    .padding(bottom = 12.dp),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { ctx ->
+                            Configuration.getInstance().userAgentValue = ctx.packageName
+                            Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+                            MapView(ctx).apply {
+                                setTileSource(TileSourceFactory.MAPNIK)
+                                setMultiTouchControls(true)
+                                controller.setZoom(13.0)
+                            }
+                        },
+                        update = { map ->
+                            map.overlays.clear()
 
-        if (isCachedData && mosques != null && mosques!!.isNotEmpty()) {
-            Text(
-                "Données chargées depuis le cache local :",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-        }
+                            val defaultLat = userLocation?.latitude ?: mosques?.firstOrNull()?.location?.latitude ?: 48.8566
+                            val defaultLng = userLocation?.longitude ?: mosques?.firstOrNull()?.location?.longitude ?: 2.3522
+                            map.controller.setCenter(GeoPoint(defaultLat, defaultLng))
 
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(16.dp))
-        } else if (locationError != null && mosques == null) {
-            Text(locationError ?: "", color = MaterialTheme.colorScheme.error)
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { requestLocation() }) {
-                Text("Réessayer")
-            }
-        } else if (mosques != null) {
-            if (mosques!!.isEmpty()) {
-                Text("Aucune mosquée trouvée à proximité.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                mosques!!.forEach { place ->
-                    val placeName = place.displayName?.text ?: "Mosquée inconnue"
-                    val placeAddress = place.formattedAddress ?: ""
-                    val isConfigured = configuredMosque?.first == placeName
+                            // Current User Location Marker
+                            userLocation?.let { loc ->
+                                val userMarker = Marker(map)
+                                userMarker.position = GeoPoint(loc.latitude, loc.longitude)
+                                userMarker.title = "📍 Votre position actuelle"
+                                userMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                map.overlays.add(userMarker)
+                            }
 
-                    Card(
+                            // Mosque Markers
+                            mosques?.forEach { place ->
+                                val pLat = place.location?.latitude
+                                val pLng = place.location?.longitude
+                                if (pLat != null && pLng != null) {
+                                    val marker = Marker(map)
+                                    marker.position = GeoPoint(pLat, pLng)
+                                    marker.title = "🕌 ${place.displayName?.text ?: "Mosquée"}"
+                                    marker.snippet = place.formattedAddress ?: "Mosquée répertoriée"
+                                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                    map.overlays.add(marker)
+                                }
+                            }
+
+                            // Authorized Community Centers & Verification Partners
+                            authorizedPartners.forEach { partner ->
+                                val partnerMarker = Marker(map)
+                                partnerMarker.position = GeoPoint(partner.latitude, partner.longitude)
+                                partnerMarker.title = "🏛️ ${partner.name}"
+                                partnerMarker.snippet = "${partner.type}\n${partner.address}\nTel: ${partner.phone}"
+                                partnerMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                map.overlays.add(partnerMarker)
+                            }
+
+                            map.invalidate()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    Surface(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isConfigured) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant
-                        )
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
                     ) {
+                        Text(
+                            "OpenStreetMap (osmdroid)",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        } else {
+            // Clear Mosque Cache Button
+            OutlinedButton(
+                onClick = clearCacheAction,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Effacer le cache des lieux")
+            }
+
+            if (isCachedData && mosques != null && mosques!!.isNotEmpty()) {
+                Text(
+                    "Données chargées depuis le cache local :",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
+
+            // Section 1: Authorized Community Centers & Verification Partners
+            Text(
+                "Centres Communautaires & Partenaires Agréés",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 6.dp)
+            )
+
+            authorizedPartners.forEach { partner ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(partner.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(partner.type, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        Text(partner.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(6.dp))
                         Row(
-                            modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(placeName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                                if (placeAddress.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(placeAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-
-                            // Button to set as configured mosque
-                            IconButton(
-                                onClick = {
-                                    if (isConfigured) {
-                                        sessionManager.clearConfiguredMosque()
-                                        configuredMosque = null
-                                        Toast.makeText(context, "Mosquée configurée retirée", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        sessionManager.saveConfiguredMosque(placeName, placeAddress)
-                                        configuredMosque = Pair(placeName, placeAddress)
-                                        Toast.makeText(context, "'$placeName' configurée comme mosquée de référence !", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                             ) {
-                                Icon(
-                                    imageVector = if (isConfigured) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                    contentDescription = "Définir comme mosquée configurée",
-                                    tint = if (isConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                Text(
+                                    partner.status,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
 
-                            // Directions button
                             IconButton(
                                 onClick = {
-                                    val uri = if (place.location != null) {
-                                        android.net.Uri.parse("geo:${place.location.latitude},${place.location.longitude}?q=${android.net.Uri.encode(placeName)}")
-                                    } else if (placeAddress.isNotEmpty()) {
-                                        android.net.Uri.parse("geo:0,0?q=${android.net.Uri.encode(placeAddress)}")
-                                    } else null
-                                    
-                                    uri?.let {
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, it)
-                                        intent.setPackage("com.google.android.apps.maps")
-                                        try {
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, it))
+                                    val uri = android.net.Uri.parse("geo:${partner.latitude},${partner.longitude}?q=${android.net.Uri.encode(partner.name)}")
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                                    try {
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Impossible d'ouvrir l'application de cartes", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Place, contentDescription = "Localiser", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Section 2: Mosques
+            Text(
+                "Mosquées à proximité (5km)",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 6.dp)
+            )
+
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(16.dp))
+            } else if (locationError != null && mosques == null) {
+                Text(locationError ?: "", color = MaterialTheme.colorScheme.error)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = { requestLocation() }) {
+                    Text("Réessayer")
+                }
+            } else if (mosques != null) {
+                if (mosques!!.isEmpty()) {
+                    Text("Aucune mosquée trouvée à proximité.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    mosques!!.forEach { place ->
+                        val placeName = place.displayName?.text ?: "Mosquée inconnue"
+                        val placeAddress = place.formattedAddress ?: ""
+                        val isConfigured = configuredMosque?.first == placeName
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isConfigured) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(placeName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                    if (placeAddress.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(placeAddress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+
+                                // Button to set as configured mosque
+                                IconButton(
+                                    onClick = {
+                                        if (isConfigured) {
+                                            sessionManager.clearConfiguredMosque()
+                                            configuredMosque = null
+                                            Toast.makeText(context, "Mosquée configurée retirée", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            sessionManager.saveConfiguredMosque(placeName, placeAddress)
+                                            configuredMosque = Pair(placeName, placeAddress)
+                                            Toast.makeText(context, "'$placeName' configurée comme mosquée de référence !", Toast.LENGTH_SHORT).show()
                                         }
                                     }
+                                ) {
+                                    Icon(
+                                        imageVector = if (isConfigured) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        contentDescription = "Définir comme mosquée configurée",
+                                        tint = if (isConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Place,
-                                    contentDescription = "S'y rendre",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+
+                                // Directions button
+                                IconButton(
+                                    onClick = {
+                                        val uri = if (place.location != null) {
+                                            android.net.Uri.parse("geo:${place.location.latitude},${place.location.longitude}?q=${android.net.Uri.encode(placeName)}")
+                                        } else if (placeAddress.isNotEmpty()) {
+                                            android.net.Uri.parse("geo:0,0?q=${android.net.Uri.encode(placeAddress)}")
+                                        } else null
+                                        
+                                        uri?.let {
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, it)
+                                            intent.setPackage("com.google.android.apps.maps")
+                                            try {
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, it))
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Place,
+                                        contentDescription = "S'y rendre",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }

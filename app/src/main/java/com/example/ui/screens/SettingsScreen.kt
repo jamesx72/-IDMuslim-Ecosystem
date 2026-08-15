@@ -53,6 +53,10 @@ fun SettingsScreen(
     val securityAuditLogs by viewModel.securityAuditLogs.collectAsState()
     val isBackingUp by viewModel.isBackingUp.collectAsState()
     val backupStatusMessage by viewModel.backupStatusMessage.collectAsState()
+    val lastBackgroundSyncTime by viewModel.lastBackgroundSyncTime.collectAsState()
+    val isBackgroundSyncEnabled by viewModel.isBackgroundSyncEnabled.collectAsState()
+    val isRealtimeSyncActive by viewModel.isRealtimeSyncActive.collectAsState()
+    val syncStatusMessage by viewModel.syncStatusMessage.collectAsState()
 
     Scaffold(
         topBar = {
@@ -332,6 +336,19 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            // Background Real-Time Identity Sync Dashboard
+            com.example.ui.components.IdentitySyncDashboard(
+                isSyncEnabled = isBackgroundSyncEnabled,
+                isRealtimeActive = isRealtimeSyncActive,
+                lastSyncTimestamp = lastBackgroundSyncTime,
+                syncStatusMessage = syncStatusMessage,
+                onToggleSyncEnabled = { viewModel.setBackgroundSyncEnabled(it) },
+                onTriggerSync = { viewModel.triggerBackgroundSyncNow() },
+                onCheckConflicts = { viewModel.checkSyncConflicts() },
+                onClearSyncMessage = { viewModel.clearSyncStatusMessage() },
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
 
             // Room <-> Firestore Sync & Cloud Backup Card
             Card(

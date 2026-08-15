@@ -55,6 +55,15 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+
+        setupRealtimeIdentitySync()
+        FirebaseAuth.getInstance().addAuthStateListener { auth ->
+            if (auth.currentUser != null) {
+                setupRealtimeIdentitySync()
+            } else {
+                stopRealtimeIdentitySync()
+            }
+        }
     }
 
     val cachedDocuments: StateFlow<List<com.example.data.DocumentEntity>> = documentDao.getAllDocuments()
@@ -287,6 +296,306 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _allowNotifications = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getAllowNotifications())
     val allowNotifications: StateFlow<Boolean> = _allowNotifications.asStateFlow()
 
+    // Granular Shared Link Privacy StateFlows
+    private val _shareLinkDob = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareLinkDob())
+    val shareLinkDob: StateFlow<Boolean> = _shareLinkDob.asStateFlow()
+
+    private val _shareLinkResidency = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareLinkResidency())
+    val shareLinkResidency: StateFlow<Boolean> = _shareLinkResidency.asStateFlow()
+
+    private val _shareLinkCommunity = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareLinkCommunity())
+    val shareLinkCommunity: StateFlow<Boolean> = _shareLinkCommunity.asStateFlow()
+
+    private val _shareLinkStatus = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareLinkStatus())
+    val shareLinkStatus: StateFlow<Boolean> = _shareLinkStatus.asStateFlow()
+
+    private val _shareLinkFullName = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareLinkFullName())
+    val shareLinkFullName: StateFlow<Boolean> = _shareLinkFullName.asStateFlow()
+
+    private val _shareLinkPhoto = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getShareLinkPhoto())
+    val shareLinkPhoto: StateFlow<Boolean> = _shareLinkPhoto.asStateFlow()
+
+    // --- Real-Time Background Identity Sync Engine (Firebase Firestore) ---
+    private var userDocListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var privateIdentityListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var privacySettingsListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var userDocsListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+    private var familyMembersListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
+
+    private val _lastBackgroundSyncTime = MutableStateFlow<Long>(com.example.network.ApiClient.getSessionManager().getLastSyncTime())
+    val lastBackgroundSyncTime: StateFlow<Long> = _lastBackgroundSyncTime.asStateFlow()
+
+    private val _isBackgroundSyncEnabled = MutableStateFlow<Boolean>(com.example.network.ApiClient.getSessionManager().isBackgroundSyncEnabled())
+    val isBackgroundSyncEnabled: StateFlow<Boolean> = _isBackgroundSyncEnabled.asStateFlow()
+
+    private val _isRealtimeSyncActive = MutableStateFlow<Boolean>(true)
+    val isRealtimeSyncActive: StateFlow<Boolean> = _isRealtimeSyncActive.asStateFlow()
+
+    fun setBackgroundSyncEnabled(enabled: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveBackgroundSyncEnabled(enabled)
+        _isBackgroundSyncEnabled.value = enabled
+        if (enabled) {
+            setupRealtimeIdentitySync()
+        } else {
+            stopRealtimeIdentitySync()
+        }
+    }
+
+    fun stopRealtimeIdentitySync() {
+        userDocListenerRegistration?.remove()
+        userDocListenerRegistration = null
+        privateIdentityListenerRegistration?.remove()
+        privateIdentityListenerRegistration = null
+        privacySettingsListenerRegistration?.remove()
+        privacySettingsListenerRegistration = null
+        userDocsListenerRegistration?.remove()
+        userDocsListenerRegistration = null
+        familyMembersListenerRegistration?.remove()
+        familyMembersListenerRegistration = null
+        _isRealtimeSyncActive.value = false
+    }
+
+    fun setupRealtimeIdentitySync() {
+        if (!_isBackgroundSyncEnabled.value) return
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+
+        // 1. Listen to Public Profile (users/{uid})
+        userDocListenerRegistration?.remove()
+        userDocListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                val publicProfile = snapshot.toObject(com.example.data.PublicProfile::class.java)
+                publicProfile?.let {
+                    if (it.fullName.isNotEmpty() && it.fullName != _profileFullName.value) {
+                        _profileFullName.value = it.fullName
+                        com.example.network.ApiClient.getSessionManager().saveProfileFullName(it.fullName)
+                    }
+                    if (it.community.isNotEmpty() && it.community != _profileCommunityAffiliation.value) {
+                        _profileCommunityAffiliation.value = it.community
+                        com.example.network.ApiClient.getSessionManager().saveProfileCommunityAffiliation(it.community)
+                    }
+                    if (it.membershipStatus.isNotEmpty() && it.membershipStatus != _verificationStatus.value) {
+                        setVerificationStatus(it.membershipStatus)
+                    }
+
+                    viewModelScope.launch {
+                        val existing = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
+                        userProfileDao.insertUserProfile(
+                            com.example.data.UserProfileEntity(
+                                uid = user.uid,
+                                fullName = it.fullName.ifEmpty { existing?.fullName ?: "" },
+                                avatarUrl = (it.avatarUrl ?: "").ifEmpty { existing?.avatarUrl ?: "" },
+                                membershipStatus = it.membershipStatus.ifEmpty { existing?.membershipStatus ?: "Non Vérifié" },
+                                isVerified = it.isVerified,
+                                community = it.community.ifEmpty { existing?.community ?: "" },
+                                expiryDate = it.expiryDate.ifEmpty { existing?.expiryDate ?: "" },
+                                dob = existing?.dob ?: "",
+                                residency = existing?.residency ?: "",
+                                passportNumber = existing?.passportNumber ?: "",
+                                licenseNumber = existing?.licenseNumber ?: "",
+                                docType = existing?.docType ?: "",
+                                docNumber = existing?.docNumber ?: "",
+                                issuingCountry = existing?.issuingCountry ?: "",
+                                lastSyncTime = System.currentTimeMillis()
+                            ).encrypted(cryptoManager)
+                        )
+                    }
+                }
+
+                val hasPaid = snapshot.getBoolean("hasPaidForPdf") ?: false
+                if (hasPaid) {
+                    com.example.network.ApiClient.getSessionManager().saveHasPaidForPdf(true)
+                    _hasPaidForPdf.value = true
+                }
+
+                val now = System.currentTimeMillis()
+                com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
+                _lastBackgroundSyncTime.value = now
+                _isRealtimeSyncActive.value = true
+            }
+
+        // 2. Listen to Private Identity (users/{uid}/private_profile/identity)
+        privateIdentityListenerRegistration?.remove()
+        privateIdentityListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("private_profile").document("identity")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                val privateIdentity = snapshot.toObject(com.example.data.PrivateIdentity::class.java)
+                privateIdentity?.let {
+                    if (it.dob.isNotEmpty() && it.dob != _profileDob.value) {
+                        _profileDob.value = it.dob
+                        com.example.network.ApiClient.getSessionManager().saveProfileDob(it.dob)
+                    }
+                    if (it.residency.isNotEmpty() && it.residency != _profileResidency.value) {
+                        _profileResidency.value = it.residency
+                        com.example.network.ApiClient.getSessionManager().saveProfileResidency(it.residency)
+                    }
+                    if (it.passportNumber.isNotEmpty()) {
+                        _profilePassportNumber.value = it.passportNumber
+                        com.example.network.ApiClient.getSessionManager().savePassportNumber(it.passportNumber)
+                    }
+                    if (it.licenseNumber.isNotEmpty()) {
+                        _profileLicenseNumber.value = it.licenseNumber
+                        com.example.network.ApiClient.getSessionManager().saveLicenseNumber(it.licenseNumber)
+                    }
+                    if (it.docType.isNotEmpty()) {
+                        _profileDocType.value = it.docType
+                        com.example.network.ApiClient.getSessionManager().saveDocType(it.docType)
+                    }
+                    if (it.docNumber.isNotEmpty()) {
+                        _profileDocNumber.value = it.docNumber
+                        com.example.network.ApiClient.getSessionManager().saveDocNumber(it.docNumber)
+                    }
+                    if (it.issuingCountry.isNotEmpty()) {
+                        _profileIssuingCountry.value = it.issuingCountry
+                        com.example.network.ApiClient.getSessionManager().saveIssuingCountry(it.issuingCountry)
+                    }
+                    if (it.expiryDate.isNotEmpty()) {
+                        _profileExpiryDate.value = it.expiryDate
+                        com.example.network.ApiClient.getSessionManager().saveExpiryDate(it.expiryDate)
+                    }
+
+                    viewModelScope.launch {
+                        val existing = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
+                        if (existing != null) {
+                            userProfileDao.insertUserProfile(
+                                existing.copy(
+                                    dob = it.dob,
+                                    residency = it.residency,
+                                    passportNumber = it.passportNumber,
+                                    licenseNumber = it.licenseNumber,
+                                    docType = it.docType,
+                                    docNumber = it.docNumber,
+                                    issuingCountry = it.issuingCountry,
+                                    expiryDate = if (it.expiryDate.isNotEmpty()) it.expiryDate else existing.expiryDate,
+                                    lastSyncTime = System.currentTimeMillis()
+                                ).encrypted(cryptoManager)
+                            )
+                        }
+                    }
+                }
+
+                val now = System.currentTimeMillis()
+                com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
+                _lastBackgroundSyncTime.value = now
+            }
+
+        // 3. Listen to Privacy Settings (users/{uid}/settings/privacy)
+        privacySettingsListenerRegistration?.remove()
+        privacySettingsListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("settings").document("privacy")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                snapshot.getString("profileVisibility")?.let {
+                    _profileVisibility.value = it
+                    com.example.network.ApiClient.getSessionManager().saveProfileVisibility(it)
+                }
+                snapshot.getBoolean("showEmail")?.let {
+                    _showEmail.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShowEmail(it)
+                }
+                snapshot.getBoolean("shareLocation")?.let {
+                    _shareLocation.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareLocation(it)
+                }
+                snapshot.getBoolean("shareData")?.let {
+                    _shareData.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareData(it)
+                }
+                snapshot.getBoolean("allowNotifications")?.let {
+                    _allowNotifications.value = it
+                    com.example.network.ApiClient.getSessionManager().saveAllowNotifications(it)
+                }
+                snapshot.getBoolean("shareLinkDob")?.let {
+                    _shareLinkDob.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareLinkDob(it)
+                }
+                snapshot.getBoolean("shareLinkResidency")?.let {
+                    _shareLinkResidency.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareLinkResidency(it)
+                }
+                snapshot.getBoolean("shareLinkCommunity")?.let {
+                    _shareLinkCommunity.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareLinkCommunity(it)
+                }
+                snapshot.getBoolean("shareLinkStatus")?.let {
+                    _shareLinkStatus.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareLinkStatus(it)
+                }
+                snapshot.getBoolean("shareLinkFullName")?.let {
+                    _shareLinkFullName.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareLinkFullName(it)
+                }
+                snapshot.getBoolean("shareLinkPhoto")?.let {
+                    _shareLinkPhoto.value = it
+                    com.example.network.ApiClient.getSessionManager().saveShareLinkPhoto(it)
+                }
+
+                val now = System.currentTimeMillis()
+                com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
+                _lastBackgroundSyncTime.value = now
+            }
+
+        // 4. Listen to Documents (users/{uid}/documents)
+        userDocsListenerRegistration?.remove()
+        userDocsListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("documents")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                val docs = snapshot.documents.mapNotNull { doc ->
+                    val id = doc.id
+                    val name = doc.getString("name") ?: "Document"
+                    val url = doc.getString("url") ?: ""
+                    val uploadedAt = doc.getLong("uploadedAt") ?: 0L
+                    UserDocument(id, name, url, uploadedAt)
+                }
+                _userDocuments.value = docs
+                viewModelScope.launch {
+                    docs.forEach { doc ->
+                        documentDao.insertDocument(
+                            com.example.data.DocumentEntity(
+                                id = doc.id,
+                                name = doc.name,
+                                url = doc.url,
+                                uploadedAt = doc.uploadedAt,
+                                docType = "ID Verification"
+                            ).encrypted(cryptoManager)
+                        )
+                    }
+                }
+                val now = System.currentTimeMillis()
+                com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
+                _lastBackgroundSyncTime.value = now
+            }
+
+        // 5. Listen to Family Members (users/{uid}/familyMembers)
+        familyMembersListenerRegistration?.remove()
+        familyMembersListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("familyMembers")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                val members = snapshot.documents.mapNotNull { it.toObject(com.example.data.FamilyMember::class.java) }
+                _familyMembers.value = members
+                val now = System.currentTimeMillis()
+                com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
+                _lastBackgroundSyncTime.value = now
+            }
+    }
+
+    fun triggerBackgroundSyncNow() {
+        val user = FirebaseAuth.getInstance().currentUser ?: run {
+            _syncStatusMessage.value = "Veuillez vous connecter pour forcer la synchronisation."
+            return
+        }
+        setupRealtimeIdentitySync()
+        checkSyncConflicts()
+        val now = System.currentTimeMillis()
+        com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
+        _lastBackgroundSyncTime.value = now
+        _syncStatusMessage.value = "⚡ Synchronisation arrière-plan réactivée & mise à jour subordonnée effectuée."
+        logActivity("REALTIME_SYNC", "Triggered manual background Firestore sync")
+    }
+
     fun updateProfileVisibility(visibility: String) {
         com.example.network.ApiClient.getSessionManager().saveProfileVisibility(visibility)
         _profileVisibility.value = visibility
@@ -317,6 +626,42 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         savePrivacySettingsToFirestore()
     }
 
+    fun updateShareLinkDob(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareLinkDob(share)
+        _shareLinkDob.value = share
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShareLinkResidency(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareLinkResidency(share)
+        _shareLinkResidency.value = share
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShareLinkCommunity(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareLinkCommunity(share)
+        _shareLinkCommunity.value = share
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShareLinkStatus(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareLinkStatus(share)
+        _shareLinkStatus.value = share
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShareLinkFullName(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareLinkFullName(share)
+        _shareLinkFullName.value = share
+        savePrivacySettingsToFirestore()
+    }
+
+    fun updateShareLinkPhoto(share: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveShareLinkPhoto(share)
+        _shareLinkPhoto.value = share
+        savePrivacySettingsToFirestore()
+    }
+
     private fun savePrivacySettingsToFirestore() {
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
         viewModelScope.launch {
@@ -326,7 +671,13 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     "showEmail" to _showEmail.value,
                     "shareLocation" to _shareLocation.value,
                     "shareData" to _shareData.value,
-                    "allowNotifications" to _allowNotifications.value
+                    "allowNotifications" to _allowNotifications.value,
+                    "shareLinkDob" to _shareLinkDob.value,
+                    "shareLinkResidency" to _shareLinkResidency.value,
+                    "shareLinkCommunity" to _shareLinkCommunity.value,
+                    "shareLinkStatus" to _shareLinkStatus.value,
+                    "shareLinkFullName" to _shareLinkFullName.value,
+                    "shareLinkPhoto" to _shareLinkPhoto.value
                 )
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
                     .collection("settings").document("privacy")
@@ -793,6 +1144,12 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                 updateShareLocation(document.getBoolean("shareLocation") ?: true)
                                 updateShareData(document.getBoolean("shareData") ?: false)
                                 updateAllowNotifications(document.getBoolean("allowNotifications") ?: true)
+                                updateShareLinkDob(document.getBoolean("shareLinkDob") ?: true)
+                                updateShareLinkResidency(document.getBoolean("shareLinkResidency") ?: true)
+                                updateShareLinkCommunity(document.getBoolean("shareLinkCommunity") ?: true)
+                                updateShareLinkStatus(document.getBoolean("shareLinkStatus") ?: true)
+                                updateShareLinkFullName(document.getBoolean("shareLinkFullName") ?: true)
+                                updateShareLinkPhoto(document.getBoolean("shareLinkPhoto") ?: false)
                             }
                         }
                         checkComplete()
@@ -1357,6 +1714,11 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 _backupStatusMessage.value = "Échec de récupération de la sauvegarde : ${e.localizedMessage}"
                 _isBackingUp.value = false
             }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopRealtimeIdentitySync()
     }
 }
 

@@ -336,6 +336,55 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("KEY_ALLOW_NOTIFICATIONS", true)
     }
 
+    // Granular Shared Link Privacy Preferences
+    fun saveShareLinkDob(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_LINK_DOB", share).apply()
+    }
+
+    fun getShareLinkDob(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_LINK_DOB", true)
+    }
+
+    fun saveShareLinkResidency(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_LINK_RESIDENCY", share).apply()
+    }
+
+    fun getShareLinkResidency(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_LINK_RESIDENCY", true)
+    }
+
+    fun saveShareLinkCommunity(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_LINK_COMMUNITY", share).apply()
+    }
+
+    fun getShareLinkCommunity(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_LINK_COMMUNITY", true)
+    }
+
+    fun saveShareLinkStatus(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_LINK_STATUS", share).apply()
+    }
+
+    fun getShareLinkStatus(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_LINK_STATUS", true)
+    }
+
+    fun saveShareLinkFullName(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_LINK_FULL_NAME", share).apply()
+    }
+
+    fun getShareLinkFullName(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_LINK_FULL_NAME", true)
+    }
+
+    fun saveShareLinkPhoto(share: Boolean) {
+        prefs.edit().putBoolean("KEY_SHARE_LINK_PHOTO", share).apply()
+    }
+
+    fun getShareLinkPhoto(): Boolean {
+        return prefs.getBoolean("KEY_SHARE_LINK_PHOTO", false)
+    }
+
     fun setHasSeenTutorial(hasSeen: Boolean) {
         prefs.edit().putBoolean("KEY_HAS_SEEN_TUTORIAL", hasSeen).apply()
     }
@@ -369,6 +418,22 @@ class SessionManager(context: Context) {
 
     fun getAutoLockTimeout(): String {
         return prefs.getString(KEY_AUTO_LOCK_TIMEOUT, "5 min") ?: "5 min"
+    }
+
+    fun saveLastSyncTime(timestamp: Long) {
+        prefs.edit().putLong("KEY_LAST_SYNC_TIME", timestamp).apply()
+    }
+
+    fun getLastSyncTime(): Long {
+        return prefs.getLong("KEY_LAST_SYNC_TIME", 0L)
+    }
+
+    fun saveBackgroundSyncEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("KEY_BACKGROUND_SYNC_ENABLED", enabled).apply()
+    }
+
+    fun isBackgroundSyncEnabled(): Boolean {
+        return prefs.getBoolean("KEY_BACKGROUND_SYNC_ENABLED", true)
     }
 
     fun addSecurityAuditLog(category: String, detail: String) {

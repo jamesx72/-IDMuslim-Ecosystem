@@ -257,6 +257,18 @@ fun ProfileScreen(
     val shareData by viewModel.shareData.collectAsState()
     val allowNotifications by viewModel.allowNotifications.collectAsState()
 
+    val shareLinkFullName by viewModel.shareLinkFullName.collectAsState()
+    val shareLinkDob by viewModel.shareLinkDob.collectAsState()
+    val shareLinkResidency by viewModel.shareLinkResidency.collectAsState()
+    val shareLinkCommunity by viewModel.shareLinkCommunity.collectAsState()
+    val shareLinkStatus by viewModel.shareLinkStatus.collectAsState()
+    val shareLinkPhoto by viewModel.shareLinkPhoto.collectAsState()
+
+    val lastBackgroundSyncTime by viewModel.lastBackgroundSyncTime.collectAsState()
+    val isBackgroundSyncEnabled by viewModel.isBackgroundSyncEnabled.collectAsState()
+    val isRealtimeSyncActive by viewModel.isRealtimeSyncActive.collectAsState()
+    val syncStatusMessage by viewModel.syncStatusMessage.collectAsState()
+
     var showVerificationDialog by remember { mutableStateOf(false) }
     var showThemeMenu by remember { mutableStateOf(false) }
     var showProfileMenu by remember { mutableStateOf(false) }
@@ -942,11 +954,37 @@ fun ProfileScreen(
                         shareLocation = shareLocation,
                         shareData = shareData,
                         allowNotifications = allowNotifications,
+                        shareLinkFullName = shareLinkFullName,
+                        shareLinkDob = shareLinkDob,
+                        shareLinkResidency = shareLinkResidency,
+                        shareLinkCommunity = shareLinkCommunity,
+                        shareLinkStatus = shareLinkStatus,
+                        shareLinkPhoto = shareLinkPhoto,
                         onUpdateProfileVisibility = { viewModel.updateProfileVisibility(it) },
                         onUpdateShowEmail = { viewModel.updateShowEmail(it) },
                         onUpdateShareLocation = { viewModel.updateShareLocation(it) },
                         onUpdateShareData = { viewModel.updateShareData(it) },
-                        onUpdateAllowNotifications = { viewModel.updateAllowNotifications(it) }
+                        onUpdateAllowNotifications = { viewModel.updateAllowNotifications(it) },
+                        onUpdateShareLinkFullName = { viewModel.updateShareLinkFullName(it) },
+                        onUpdateShareLinkDob = { viewModel.updateShareLinkDob(it) },
+                        onUpdateShareLinkResidency = { viewModel.updateShareLinkResidency(it) },
+                        onUpdateShareLinkCommunity = { viewModel.updateShareLinkCommunity(it) },
+                        onUpdateShareLinkStatus = { viewModel.updateShareLinkStatus(it) },
+                        onUpdateShareLinkPhoto = { viewModel.updateShareLinkPhoto(it) }
+                    )
+                }
+
+                item {
+                    com.example.ui.components.IdentitySyncDashboard(
+                        isSyncEnabled = isBackgroundSyncEnabled,
+                        isRealtimeActive = isRealtimeSyncActive,
+                        lastSyncTimestamp = lastBackgroundSyncTime,
+                        syncStatusMessage = syncStatusMessage,
+                        onToggleSyncEnabled = { viewModel.setBackgroundSyncEnabled(it) },
+                        onTriggerSync = { viewModel.triggerBackgroundSyncNow() },
+                        onCheckConflicts = { viewModel.checkSyncConflicts() },
+                        onClearSyncMessage = { viewModel.clearSyncStatusMessage() },
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                     )
                 }
 
@@ -960,7 +998,13 @@ fun ProfileScreen(
                             fullName = profileFullName,
                             dateOfBirth = profileDateOfBirth,
                             residency = profileResidency,
-                            communityAffiliation = profileCommunityAffiliation
+                            communityAffiliation = profileCommunityAffiliation,
+                            shareLinkFullName = shareLinkFullName,
+                            shareLinkDob = shareLinkDob,
+                            shareLinkResidency = shareLinkResidency,
+                            shareLinkCommunity = shareLinkCommunity,
+                            shareLinkStatus = shareLinkStatus,
+                            shareLinkPhoto = shareLinkPhoto
                         )
                     }
                 }
@@ -1021,11 +1065,23 @@ fun ProfileScreen(
                             shareLocation = shareLocation,
                             shareData = shareData,
                             allowNotifications = allowNotifications,
+                            shareLinkFullName = shareLinkFullName,
+                            shareLinkDob = shareLinkDob,
+                            shareLinkResidency = shareLinkResidency,
+                            shareLinkCommunity = shareLinkCommunity,
+                            shareLinkStatus = shareLinkStatus,
+                            shareLinkPhoto = shareLinkPhoto,
                             onUpdateProfileVisibility = { viewModel.updateProfileVisibility(it) },
                             onUpdateShowEmail = { viewModel.updateShowEmail(it) },
                             onUpdateShareLocation = { viewModel.updateShareLocation(it) },
                             onUpdateShareData = { viewModel.updateShareData(it) },
                             onUpdateAllowNotifications = { viewModel.updateAllowNotifications(it) },
+                            onUpdateShareLinkFullName = { viewModel.updateShareLinkFullName(it) },
+                            onUpdateShareLinkDob = { viewModel.updateShareLinkDob(it) },
+                            onUpdateShareLinkResidency = { viewModel.updateShareLinkResidency(it) },
+                            onUpdateShareLinkCommunity = { viewModel.updateShareLinkCommunity(it) },
+                            onUpdateShareLinkStatus = { viewModel.updateShareLinkStatus(it) },
+                            onUpdateShareLinkPhoto = { viewModel.updateShareLinkPhoto(it) },
                             onDocumentUpload = { onNavigateToDocumentScanner() },
                             onStartVerification = { showVerificationDialog = true }
                         )
@@ -1596,7 +1652,13 @@ fun ProfileQrSection(
     fullName: String,
     dateOfBirth: String,
     residency: String,
-    communityAffiliation: String
+    communityAffiliation: String,
+    shareLinkFullName: Boolean = true,
+    shareLinkDob: Boolean = true,
+    shareLinkResidency: Boolean = true,
+    shareLinkCommunity: Boolean = true,
+    shareLinkStatus: Boolean = true,
+    shareLinkPhoto: Boolean = false
 ) {
     var isDynamicMode by remember { mutableStateOf(true) }
     var secondsLeft by remember { mutableStateOf(30) }
@@ -1609,7 +1671,13 @@ fun ProfileQrSection(
 
     fun generateNewToken() {
         val timestamp = System.currentTimeMillis() / 1000
-        val payloadRaw = "$memberId-${verificationStatus.ifEmpty { "UNVERIFIED" }}-$fullName-$dateOfBirth-$residency-$communityAffiliation-$timestamp"
+        val vName = if (shareLinkFullName) fullName else "${fullName.firstOrNull() ?: 'U'}***"
+        val vDob = if (shareLinkDob) dateOfBirth else "••/••/••••"
+        val vRes = if (shareLinkResidency) residency else "••••••••"
+        val vCom = if (shareLinkCommunity) communityAffiliation else "••••••••"
+        val vStat = if (shareLinkStatus) (verificationStatus.ifEmpty { "UNVERIFIED" }) else "HIDDEN"
+
+        val payloadRaw = "$memberId-$vStat-$vName-$vDob-$vRes-$vCom-$timestamp"
         currentSignature = try {
             val bytes = java.security.MessageDigest.getInstance("SHA-256").digest(payloadRaw.toByteArray())
             bytes.joinToString("") { "%02x".format(it) }.take(24)
@@ -1620,11 +1688,12 @@ fun ProfileQrSection(
         securePayload = """
             {
               "id": "$memberId",
-              "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
-              "name": "$fullName",
-              "dob": "$dateOfBirth",
-              "residency": "$residency",
-              "community": "$communityAffiliation",
+              "status": "$vStat",
+              "name": "$vName",
+              "dob": "$vDob",
+              "residency": "$vRes",
+              "community": "$vCom",
+              "photoAttached": $shareLinkPhoto,
               "issuedAt": $timestamp,
               "sig": "$currentSignature",
               "algorithm": "SHA-256"
@@ -1861,7 +1930,7 @@ fun ProfileQrSection(
             
             Button(
                 onClick = {
-                    val shareUrl = "https://idmuslim.org/badge/${memberId}?token=${currentSignature}"
+                    val shareUrl = "https://idmuslim.org/badge/${memberId}?token=${currentSignature}&fn=${if (shareLinkFullName) 1 else 0}&dob=${if (shareLinkDob) 1 else 0}&res=${if (shareLinkResidency) 1 else 0}&com=${if (shareLinkCommunity) 1 else 0}&status=${if (shareLinkStatus) 1 else 0}&photo=${if (shareLinkPhoto) 1 else 0}"
                     val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(android.content.Intent.EXTRA_SUBJECT, Translations.get(language, "share_badge_subject"))
@@ -1981,7 +2050,7 @@ fun ProfileQrSection(
                     )
                     
                     val tempLinkId = remember { java.util.UUID.randomUUID().toString().take(8) }
-                    val tempShareUrl = "https://idmuslim.org/temp/$tempLinkId?memberId=$memberId"
+                    val tempShareUrl = "https://idmuslim.org/temp/$tempLinkId?memberId=$memberId&fn=${if (shareLinkFullName) 1 else 0}&dob=${if (shareLinkDob) 1 else 0}&res=${if (shareLinkResidency) 1 else 0}&com=${if (shareLinkCommunity) 1 else 0}&status=${if (shareLinkStatus) 1 else 0}&photo=${if (shareLinkPhoto) 1 else 0}"
                     
                     val tempQrBitmap = remember(tempShareUrl) {
                         try {
@@ -3352,11 +3421,23 @@ fun CredentialsDashboardSection(
     shareLocation: Boolean,
     shareData: Boolean,
     allowNotifications: Boolean,
+    shareLinkFullName: Boolean = true,
+    shareLinkDob: Boolean = true,
+    shareLinkResidency: Boolean = true,
+    shareLinkCommunity: Boolean = true,
+    shareLinkStatus: Boolean = true,
+    shareLinkPhoto: Boolean = false,
     onUpdateProfileVisibility: (String) -> Unit,
     onUpdateShowEmail: (Boolean) -> Unit,
     onUpdateShareLocation: (Boolean) -> Unit,
     onUpdateShareData: (Boolean) -> Unit,
     onUpdateAllowNotifications: (Boolean) -> Unit,
+    onUpdateShareLinkFullName: (Boolean) -> Unit = {},
+    onUpdateShareLinkDob: (Boolean) -> Unit = {},
+    onUpdateShareLinkResidency: (Boolean) -> Unit = {},
+    onUpdateShareLinkCommunity: (Boolean) -> Unit = {},
+    onUpdateShareLinkStatus: (Boolean) -> Unit = {},
+    onUpdateShareLinkPhoto: (Boolean) -> Unit = {},
     onDocumentUpload: () -> Unit = {},
     onStartVerification: () -> Unit = {}
 ) {
@@ -3452,11 +3533,23 @@ fun CredentialsDashboardSection(
             shareLocation = shareLocation,
             shareData = shareData,
             allowNotifications = allowNotifications,
+            shareLinkFullName = shareLinkFullName,
+            shareLinkDob = shareLinkDob,
+            shareLinkResidency = shareLinkResidency,
+            shareLinkCommunity = shareLinkCommunity,
+            shareLinkStatus = shareLinkStatus,
+            shareLinkPhoto = shareLinkPhoto,
             onUpdateProfileVisibility = onUpdateProfileVisibility,
             onUpdateShowEmail = onUpdateShowEmail,
             onUpdateShareLocation = onUpdateShareLocation,
             onUpdateShareData = onUpdateShareData,
             onUpdateAllowNotifications = onUpdateAllowNotifications,
+            onUpdateShareLinkFullName = onUpdateShareLinkFullName,
+            onUpdateShareLinkDob = onUpdateShareLinkDob,
+            onUpdateShareLinkResidency = onUpdateShareLinkResidency,
+            onUpdateShareLinkCommunity = onUpdateShareLinkCommunity,
+            onUpdateShareLinkStatus = onUpdateShareLinkStatus,
+            onUpdateShareLinkPhoto = onUpdateShareLinkPhoto,
             modifier = Modifier.padding(bottom = 12.dp)
         )
 
