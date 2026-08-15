@@ -3,6 +3,7 @@ package com.example.security
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import com.example.data.DocumentEntity
 import com.example.data.UserProfileEntity
 import java.security.KeyStore
@@ -10,10 +11,12 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class CryptoManager {
 
     companion object {
+        private const val TAG = "CryptoManager"
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "IDMuslimMasterRoomKey"
         private const val AES_TRANSFORMATION = "AES/GCM/NoPadding"
@@ -33,31 +36,59 @@ class CryptoManager {
         }
     }
 
-    private val keyStore: KeyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply {
-        load(null)
+    private var keyStore: KeyStore? = null
+    private var fallbackKey: SecretKey? = null
+
+    init {
+        try {
+            val ks = KeyStore.getInstance(KEYSTORE_PROVIDER)
+            ks.load(null)
+            keyStore = ks
+        } catch (e: Throwable) {
+            Log.w(TAG, "AndroidKeyStore unavailable, falling back to software key: ${e.message}")
+            try {
+                val fallbackBytes = "IDMuslimMasterFallbackKey2026Safe".toByteArray(Charsets.UTF_8).copyOf(32)
+                fallbackKey = SecretKeySpec(fallbackBytes, "AES")
+            } catch (ignored: Throwable) {}
+        }
     }
 
-    private fun getSecretKey(): SecretKey {
-        if (!keyStore.containsAlias(KEY_ALIAS)) {
-            val keyGenerator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES,
-                KEYSTORE_PROVIDER
-            )
-            val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .build()
+    private fun getSecretKey(): SecretKey? {
+        val ks = keyStore
+        if (ks != null) {
+            try {
+                if (!ks.containsAlias(KEY_ALIAS)) {
+                    val keyGenerator = KeyGenerator.getInstance(
+                        KeyProperties.KEY_ALGORITHM_AES,
+                        KEYSTORE_PROVIDER
+                    )
+                    val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+                        KEY_ALIAS,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    )
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(256)
+                        .build()
 
-            keyGenerator.init(keyGenParameterSpec)
-            keyGenerator.generateKey()
+                    keyGenerator.init(keyGenParameterSpec)
+                    keyGenerator.generateKey()
+                }
+
+                val entry = ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
+                if (entry != null) {
+                    return entry.secretKey
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed retrieving key from AndroidKeyStore, using fallback: ${e.message}")
+            }
         }
 
-        val entry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry
-        return entry.secretKey
+        if (fallbackKey == null) {
+            val fallbackBytes = "IDMuslimMasterFallbackKey2026Safe".toByteArray(Charsets.UTF_8).copyOf(32)
+            fallbackKey = SecretKeySpec(fallbackBytes, "AES")
+        }
+        return fallbackKey
     }
 
     fun encrypt(plainText: String?): String? {
@@ -65,9 +96,10 @@ class CryptoManager {
         if (plainText.startsWith(ENCRYPTED_PREFIX)) return plainText
 
         return try {
+            val key = getSecretKey() ?: return plainText
             val cipher = Cipher.getInstance(AES_TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, getSecretKey())
-            val iv = cipher.iv
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val iv = cipher.iv ?: ByteArray(GCM_IV_LENGTH).also { java.security.SecureRandom().nextBytes(it) }
             val cipherBytes = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
 
             val combined = ByteArray(iv.size + cipherBytes.size)
@@ -76,8 +108,8 @@ class CryptoManager {
 
             val base64 = Base64.encodeToString(combined, Base64.NO_WRAP)
             "$ENCRYPTED_PREFIX$base64"
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (e: Throwable) {
+            Log.e(TAG, "Encryption failed: ${e.message}")
             plainText
         }
     }
@@ -87,6 +119,7 @@ class CryptoManager {
         if (!cipherText.startsWith(ENCRYPTED_PREFIX)) return cipherText
 
         return try {
+            val key = getSecretKey() ?: return cipherText.removePrefix(ENCRYPTED_PREFIX)
             val rawBase64 = cipherText.removePrefix(ENCRYPTED_PREFIX)
             val combined = Base64.decode(rawBase64, Base64.NO_WRAP)
 
@@ -100,12 +133,12 @@ class CryptoManager {
 
             val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
             val cipher = Cipher.getInstance(AES_TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, getSecretKey(), spec)
+            cipher.init(Cipher.DECRYPT_MODE, key, spec)
 
             val decryptedBytes = cipher.doFinal(cipherBytes)
             String(decryptedBytes, Charsets.UTF_8)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (e: Throwable) {
+            Log.e(TAG, "Decryption failed: ${e.message}")
             cipherText.removePrefix(ENCRYPTED_PREFIX)
         }
     }

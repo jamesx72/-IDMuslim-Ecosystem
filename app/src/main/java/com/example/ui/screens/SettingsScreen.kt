@@ -922,11 +922,42 @@ fun LanguageOption(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 fun ThemeOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(
-            selected = selected,
-            onClick = onClick
-        )
-        Text(text = label, modifier = Modifier.padding(start = 4.dp))
+    val animatedBg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        animationSpec = androidx.compose.animation.core.tween(300),
+        label = "theme_option_bg"
+    )
+    val animatedBorder by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+        animationSpec = androidx.compose.animation.core.tween(300),
+        label = "theme_option_border"
+    )
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = animatedBg,
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, animatedBorder),
+        modifier = Modifier.padding(horizontal = 4.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onClick,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = MaterialTheme.colorScheme.primary
+                )
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 2.dp, end = 6.dp)
+            )
+        }
     }
 }

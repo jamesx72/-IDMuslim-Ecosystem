@@ -198,7 +198,7 @@ fun IDMuslimApp(startRoute: String = "auth") {
                 )
             }
             composable(Screen.Scanner.route) {
-                ScannerScreen()
+                ScannerScreen(viewModel = eventViewModel)
             }
             composable(Screen.DocumentScanner.route) {
                 DocumentScannerScreen(

@@ -539,15 +539,10 @@ fun ProfileScreen(
                 ) {
                     val currentTheme by viewModel.darkTheme.collectAsState()
                     val isDark = currentTheme == "dark" || (currentTheme == "system" && androidx.compose.foundation.isSystemInDarkTheme())
-                    IconButton(
-                        onClick = { viewModel.updateDarkTheme(if (isDark) "light" else "dark") }
-                    ) {
-                        Icon(
-                            imageVector = if (isDark) Icons.Default.WbSunny else Icons.Default.NightsStay,
-                            contentDescription = "Toggle Theme",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    com.example.ui.components.ThemeToggleAnimatedButton(
+                        isDark = isDark,
+                        onToggle = { viewModel.updateDarkTheme(if (isDark) "light" else "dark") }
+                    )
                     IconButton(
                         onClick = { showNotificationsDialog = true }
                     ) {

@@ -36,137 +36,14 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val userProfileDao: com.example.data.UserProfileDao
     private val documentDao: com.example.data.DocumentDao
 
-    init {
-        val database = AppDatabase.getDatabase(application)
-        val eventDao = database.eventDao()
-        activityLogDao = database.activityLogDao()
-        communityPostDao = database.communityPostDao()
-        userProfileDao = database.userProfileDao()
-        documentDao = database.documentDao()
-        repository = EventRepository(eventDao)
-
-        viewModelScope.launch {
-            documentDao.getAllDocuments().collect { docs ->
-                val decryptedDocs = docs.map { it.decrypted(cryptoManager) }
-                if (decryptedDocs.isNotEmpty() || _userDocuments.value.isEmpty()) {
-                    _userDocuments.value = decryptedDocs.map { doc ->
-                        UserDocument(doc.id, doc.name, doc.url, doc.uploadedAt)
-                    }
-                }
-            }
-        }
-
-        setupRealtimeIdentitySync()
-        FirebaseAuth.getInstance().addAuthStateListener { auth ->
-            if (auth.currentUser != null) {
-                setupRealtimeIdentitySync()
-            } else {
-                stopRealtimeIdentitySync()
-            }
-        }
-    }
-
-    val cachedDocuments: StateFlow<List<com.example.data.DocumentEntity>> = documentDao.getAllDocuments()
-        .map { list -> list.map { it.decrypted(cryptoManager) } }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
-
-    val cachedUserProfile = userProfileDao.getUserProfile(FirebaseAuth.getInstance().currentUser?.uid ?: "")
-        .map { entity -> entity?.decrypted(cryptoManager) }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = null
-        )
-
-    val communityPosts: StateFlow<List<com.example.data.CommunityPostEntity>> = communityPostDao.getAllPosts().stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
-    fun createCommunityPost(title: String, content: String, type: String, communityName: String) {
-        val sessionManager = com.example.network.ApiClient.getSessionManager()
-        val authorName = sessionManager.getProfileFullName()?.takeIf { it.isNotEmpty() } ?: "Admin"
-        viewModelScope.launch {
-            communityPostDao.insertPost(
-                com.example.data.CommunityPostEntity(
-                    title = title,
-                    content = content,
-                    type = type,
-                    timestamp = System.currentTimeMillis(),
-                    authorName = authorName,
-                    communityName = communityName
-                )
-            )
-            logActivity("CREATE_POST", "Created post: $title in $communityName")
-        }
-    }
-
-    fun deleteCommunityPost(postId: Int) {
-        viewModelScope.launch {
-            communityPostDao.deletePost(postId)
-            logActivity("DELETE_POST", "Deleted post ID: $postId")
-        }
-    }
-
-    val activityLogs: StateFlow<List<com.example.data.ActivityLogEntity>> = activityLogDao.getAllLogs().stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+    val cachedDocuments: StateFlow<List<com.example.data.DocumentEntity>>
+    val cachedUserProfile: StateFlow<com.example.data.UserProfileEntity?>
+    val communityPosts: StateFlow<List<com.example.data.CommunityPostEntity>>
+    val activityLogs: StateFlow<List<com.example.data.ActivityLogEntity>>
 
     data class FirestoreActivityLog(val id: String = "", val timestamp: Long = 0, val actionType: String = "", val description: String = "")
     private val _userActivityLogs = MutableStateFlow<List<FirestoreActivityLog>>(emptyList())
     val userActivityLogs: StateFlow<List<FirestoreActivityLog>> = _userActivityLogs.asStateFlow()
-
-    fun loadUserActivityLogs() {
-        val user = FirebaseAuth.getInstance().currentUser ?: return
-        FirebaseFirestore.getInstance().collection("users").document(user.uid)
-            .collection("activity_logs")
-            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
-            .get()
-            .addOnSuccessListener { snapshot ->
-                val logs = snapshot.documents.mapNotNull { doc ->
-                    val id = doc.id
-                    val timestamp = doc.getLong("timestamp") ?: 0L
-                    val actionType = doc.getString("actionType") ?: ""
-                    val description = doc.getString("description") ?: ""
-                    FirestoreActivityLog(id, timestamp, actionType, description)
-                }
-                _userActivityLogs.value = logs
-            }
-    }
-
-    fun logActivity(actionType: String, description: String) {
-        viewModelScope.launch {
-            val ts = System.currentTimeMillis()
-            activityLogDao.insertLog(
-                com.example.data.ActivityLogEntity(
-                    timestamp = ts,
-                    actionType = actionType,
-                    description = description
-                )
-            )
-            
-            val user = FirebaseAuth.getInstance().currentUser
-            if (user != null) {
-                val data = hashMapOf(
-                    "timestamp" to ts,
-                    "actionType" to actionType,
-                    "description" to description
-                )
-                FirebaseFirestore.getInstance().collection("users").document(user.uid)
-                    .collection("activity_logs").add(data)
-                    .addOnSuccessListener {
-                        loadUserActivityLogs()
-                    }
-            }
-        }
-    }
 
     private val _isUserVerified = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isUserVerified())
     val isUserVerified: StateFlow<Boolean> = _isUserVerified.asStateFlow()
@@ -179,34 +56,6 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _usersList = MutableStateFlow<List<com.example.data.UserDto>>(emptyList())
     val usersList: StateFlow<List<com.example.data.UserDto>> = _usersList.asStateFlow()
-
-    fun loadAllUsers() {
-        FirebaseFirestore.getInstance().collection("users")
-            .addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null) return@addSnapshotListener
-                val members = snapshot.documents.map { doc ->
-                    val fullName = doc.getString("fullName") ?: "Unknown User"
-                    val isVerified = doc.getString("verificationStatus") == "VERIFIED"
-                    com.example.data.UserDto(
-                        uid = doc.id,
-                        fullName = fullName,
-                        isVerified = isVerified,
-                        dob = doc.getString("dob") ?: "",
-                        residency = doc.getString("residency") ?: "",
-                        community = doc.getString("community") ?: "",
-                        country = doc.getString("country") ?: "",
-                        membershipStatus = doc.getString("membershipStatus") ?: "PENDING"
-                    )
-                }
-                _usersList.value = members
-            }
-    }
-
-    fun toggleUserVerification(uid: String, currentStatus: Boolean) {
-        val newStatus = if (currentStatus) "UNVERIFIED" else "VERIFIED"
-        FirebaseFirestore.getInstance().collection("users").document(uid)
-            .set(hashMapOf("verificationStatus" to newStatus), com.google.firebase.firestore.SetOptions.merge())
-    }
 
     private val _profilePhotoBase64 = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfilePhotoBase64())
     val profilePhotoBase64: StateFlow<String?> = _profilePhotoBase64.asStateFlow()
@@ -330,6 +179,197 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isRealtimeSyncActive = MutableStateFlow<Boolean>(true)
     val isRealtimeSyncActive: StateFlow<Boolean> = _isRealtimeSyncActive.asStateFlow()
+
+    private val _familyMembers = MutableStateFlow<List<com.example.data.FamilyMember>>(emptyList())
+    val familyMembers: StateFlow<List<com.example.data.FamilyMember>> = _familyMembers.asStateFlow()
+
+    // --- Conflict Resolution Strategy for Room DB & Firestore Sync ---
+    private val _syncConflict = MutableStateFlow<com.example.data.SyncConflict?>(null)
+    val syncConflict: StateFlow<com.example.data.SyncConflict?> = _syncConflict.asStateFlow()
+
+    private val _syncStatusMessage = MutableStateFlow<String?>(null)
+    val syncStatusMessage: StateFlow<String?> = _syncStatusMessage.asStateFlow()
+
+    // --- Backup & Restore Room Database to/from Firestore Cloud as Encrypted JSON ---
+    private val _isBackingUp = MutableStateFlow(false)
+    val isBackingUp: StateFlow<Boolean> = _isBackingUp.asStateFlow()
+
+    private val _backupStatusMessage = MutableStateFlow<String?>(null)
+    val backupStatusMessage: StateFlow<String?> = _backupStatusMessage.asStateFlow()
+
+    init {
+        val database = AppDatabase.getDatabase(application)
+        val eventDao = database.eventDao()
+        activityLogDao = database.activityLogDao()
+        communityPostDao = database.communityPostDao()
+        userProfileDao = database.userProfileDao()
+        documentDao = database.documentDao()
+        repository = EventRepository(eventDao)
+
+        cachedDocuments = documentDao.getAllDocuments()
+            .map { list -> list.map { it.decrypted(cryptoManager) } }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
+
+        val uid = try { FirebaseAuth.getInstance().currentUser?.uid ?: "" } catch (e: Throwable) { "" }
+        cachedUserProfile = userProfileDao.getUserProfile(uid)
+            .map { entity -> entity?.decrypted(cryptoManager) }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = null
+            )
+
+        communityPosts = communityPostDao.getAllPosts().stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        activityLogs = activityLogDao.getAllLogs().stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+        viewModelScope.launch {
+            documentDao.getAllDocuments().collect { docs ->
+                val decryptedDocs = docs.map { it.decrypted(cryptoManager) }
+                if (decryptedDocs.isNotEmpty() || _userDocuments.value.isEmpty()) {
+                    _userDocuments.value = decryptedDocs.map { doc ->
+                        UserDocument(doc.id, doc.name, doc.url, doc.uploadedAt)
+                    }
+                }
+            }
+        }
+
+        setupRealtimeIdentitySync()
+        try {
+            FirebaseAuth.getInstance().addAuthStateListener { auth ->
+                if (auth.currentUser != null) {
+                    setupRealtimeIdentitySync()
+                } else {
+                    stopRealtimeIdentitySync()
+                }
+            }
+        } catch (e: Throwable) {
+            android.util.Log.w("EventViewModel", "Firebase auth listener registration skipped: ${e.message}")
+        }
+    }
+
+    fun createCommunityPost(title: String, content: String, type: String, communityName: String) {
+        val sessionManager = com.example.network.ApiClient.getSessionManager()
+        val authorName = sessionManager.getProfileFullName()?.takeIf { it.isNotEmpty() } ?: "Admin"
+        viewModelScope.launch {
+            communityPostDao.insertPost(
+                com.example.data.CommunityPostEntity(
+                    title = title,
+                    content = content,
+                    type = type,
+                    timestamp = System.currentTimeMillis(),
+                    authorName = authorName,
+                    communityName = communityName
+                )
+            )
+            logActivity("CREATE_POST", "Created post: $title in $communityName")
+        }
+    }
+
+    fun deleteCommunityPost(postId: Int) {
+        viewModelScope.launch {
+            communityPostDao.deletePost(postId)
+            logActivity("DELETE_POST", "Deleted post ID: $postId")
+        }
+    }
+
+    fun loadUserActivityLogs() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .collection("activity_logs")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val logs = snapshot.documents.mapNotNull { doc ->
+                    val id = doc.id
+                    val timestamp = doc.getLong("timestamp") ?: 0L
+                    val actionType = doc.getString("actionType") ?: ""
+                    val description = doc.getString("description") ?: ""
+                    FirestoreActivityLog(id, timestamp, actionType, description)
+                }
+                _userActivityLogs.value = logs
+            }
+    }
+
+    fun loadAllUsers() {
+        FirebaseFirestore.getInstance().collection("users").get()
+            .addOnSuccessListener { snapshot ->
+                val users = snapshot.documents.mapNotNull { doc ->
+                    val uid = doc.id
+                    val fullName = doc.getString("fullName") ?: "Utilisateur"
+                    val isVerified = doc.getBoolean("isVerified") ?: false
+                    val membershipStatus = doc.getString("membershipStatus") ?: (if (isVerified) "VERIFIED" else "PENDING")
+                    val community = doc.getString("community") ?: ""
+                    val expiryDate = doc.getString("expiryDate") ?: ""
+                    com.example.data.UserDto(
+                        uid = uid,
+                        fullName = fullName,
+                        isVerified = isVerified,
+                        membershipStatus = membershipStatus,
+                        community = community,
+                        expiryDate = expiryDate
+                    )
+                }
+                _usersList.value = users
+            }
+    }
+
+    fun toggleUserVerification(uid: String, currentStatus: Boolean) {
+        val newStatus = !currentStatus
+        val membershipStatus = if (newStatus) "VERIFIED" else "UNVERIFIED"
+        val data = mapOf(
+            "isVerified" to newStatus,
+            "membershipStatus" to membershipStatus,
+            "verificationStatus" to (if (newStatus) "VERIFIED" else "UNVERIFIED")
+        )
+        FirebaseFirestore.getInstance().collection("users").document(uid)
+            .set(data, com.google.firebase.firestore.SetOptions.merge())
+            .addOnSuccessListener {
+                loadAllUsers()
+                logActivity("ADMIN_TOGGLE_VERIFICATION", "Updated verification for $uid to $newStatus")
+            }
+    }
+
+    fun logActivity(actionType: String, description: String) {
+        viewModelScope.launch {
+            val ts = System.currentTimeMillis()
+            activityLogDao.insertLog(
+                com.example.data.ActivityLogEntity(
+                    timestamp = ts,
+                    actionType = actionType,
+                    description = description
+                )
+            )
+            
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                val data = hashMapOf(
+                    "timestamp" to ts,
+                    "actionType" to actionType,
+                    "description" to description
+                )
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("activity_logs").add(data)
+                    .addOnSuccessListener {
+                        loadUserActivityLogs()
+                    }
+            }
+        }
+    }
+
+
 
     fun setBackgroundSyncEnabled(enabled: Boolean) {
         com.example.network.ApiClient.getSessionManager().saveBackgroundSyncEnabled(enabled)
@@ -1245,9 +1285,6 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val _familyMembers = MutableStateFlow<List<com.example.data.FamilyMember>>(emptyList())
-    val familyMembers: StateFlow<List<com.example.data.FamilyMember>> = _familyMembers.asStateFlow()
-
     fun loadFamilyMembers() {
         val user = FirebaseAuth.getInstance().currentUser ?: return
         FirebaseFirestore.getInstance().collection("users").document(user.uid)
@@ -1378,13 +1415,6 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             onResult(success)
         }
     }
-
-    // --- Conflict Resolution Strategy for Room DB & Firestore Sync ---
-    private val _syncConflict = MutableStateFlow<com.example.data.SyncConflict?>(null)
-    val syncConflict: StateFlow<com.example.data.SyncConflict?> = _syncConflict.asStateFlow()
-
-    private val _syncStatusMessage = MutableStateFlow<String?>(null)
-    val syncStatusMessage: StateFlow<String?> = _syncStatusMessage.asStateFlow()
 
     fun clearSyncStatusMessage() {
         _syncStatusMessage.value = null
@@ -1571,13 +1601,6 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-
-    // --- Backup & Restore Room Database to/from Firestore Cloud as Encrypted JSON ---
-    private val _isBackingUp = MutableStateFlow(false)
-    val isBackingUp: StateFlow<Boolean> = _isBackingUp.asStateFlow()
-
-    private val _backupStatusMessage = MutableStateFlow<String?>(null)
-    val backupStatusMessage: StateFlow<String?> = _backupStatusMessage.asStateFlow()
 
     fun clearBackupStatusMessage() {
         _backupStatusMessage.value = null

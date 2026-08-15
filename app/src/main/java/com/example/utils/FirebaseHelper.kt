@@ -15,10 +15,14 @@ object FirebaseHelper {
                 val appId = BuildConfig.FIREBASE_APP_ID
                 val projectId = BuildConfig.FIREBASE_PROJECT_ID
 
+                val finalApiKey = if (apiKey.isNullOrBlank() || apiKey.contains("YOUR_FIREBASE")) "AIzaSyDummyKeyForLocalCompilationAndInitialization" else apiKey
+                val finalAppId = if (appId.isNullOrBlank() || appId.contains("YOUR_FIREBASE")) "1:123456789012:android:abcdef12345678" else appId
+                val finalProjectId = if (projectId.isNullOrBlank() || projectId.contains("YOUR_FIREBASE")) "idmuslim-app" else projectId
+
                 val options = FirebaseOptions.Builder()
-                    .setApiKey(if (apiKey.contains("YOUR_FIREBASE")) "AIzaSyDummyKeyForLocalCompilationAndInitialization" else apiKey)
-                    .setApplicationId(if (appId.contains("YOUR_FIREBASE")) "1:123456789012:android:abcdef12345678" else appId)
-                    .setProjectId(if (projectId.contains("YOUR_FIREBASE")) "idmuslim-app" else projectId)
+                    .setApiKey(finalApiKey)
+                    .setApplicationId(finalAppId)
+                    .setProjectId(finalProjectId)
                     .build()
                 FirebaseApp.initializeApp(context, options)
                 Log.d("FirebaseHelper", "FirebaseApp initialized programmatically successfully!")
