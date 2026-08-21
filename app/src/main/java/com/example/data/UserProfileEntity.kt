@@ -22,5 +22,7 @@ data class UserProfileEntity(
     val docNumber: String,
     val issuingCountry: String,
     
+    val idNumber: String,
+    
     val lastSyncTime: Long = System.currentTimeMillis()
 )

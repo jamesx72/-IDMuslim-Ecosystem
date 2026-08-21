@@ -41,7 +41,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     val communityPosts: StateFlow<List<com.example.data.CommunityPostEntity>>
     val activityLogs: StateFlow<List<com.example.data.ActivityLogEntity>>
 
-    data class FirestoreActivityLog(val id: String = "", val timestamp: Long = 0, val actionType: String = "", val description: String = "")
+    data class FirestoreActivityLog(val id: String = "", val timestamp: Long = 0, val actionType: String = "", val description: String = "", val location: String = "Lieu non spécifié")
     private val _userActivityLogs = MutableStateFlow<List<FirestoreActivityLog>>(emptyList())
     val userActivityLogs: StateFlow<List<FirestoreActivityLog>> = _userActivityLogs.asStateFlow()
 
@@ -297,7 +297,8 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     val timestamp = doc.getLong("timestamp") ?: 0L
                     val actionType = doc.getString("actionType") ?: ""
                     val description = doc.getString("description") ?: ""
-                    FirestoreActivityLog(id, timestamp, actionType, description)
+                    val location = doc.getString("location") ?: "Lieu non spécifié"
+                    FirestoreActivityLog(id, timestamp, actionType, description, location)
                 }
                 _userActivityLogs.value = logs
             }
@@ -313,13 +314,17 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     val membershipStatus = doc.getString("membershipStatus") ?: (if (isVerified) "VERIFIED" else "PENDING")
                     val community = doc.getString("community") ?: ""
                     val expiryDate = doc.getString("expiryDate") ?: ""
+                    val idNumber = doc.getString("idNumber") ?: "IDM-${uid.take(8).uppercase()}"
+                    val isSuspended = doc.getBoolean("isSuspended") ?: false
                     com.example.data.UserDto(
                         uid = uid,
                         fullName = fullName,
                         isVerified = isVerified,
                         membershipStatus = membershipStatus,
                         community = community,
-                        expiryDate = expiryDate
+                        expiryDate = expiryDate,
+                        idNumber = idNumber,
+                        isSuspended = isSuspended
                     )
                 }
                 _usersList.value = users
@@ -342,14 +347,49 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
-    fun logActivity(actionType: String, description: String) {
+    fun toggleUserSuspension(uid: String, currentSuspension: Boolean) {
+        val newSuspension = !currentSuspension
+        val data = mutableMapOf<String, Any>(
+            "isSuspended" to newSuspension
+        )
+        if (newSuspension) {
+             data["verificationStatus"] = "SUSPENDED"
+             data["membershipStatus"] = "SUSPENDED"
+             data["isVerified"] = false
+        } else {
+             data["verificationStatus"] = "UNVERIFIED"
+             data["membershipStatus"] = "UNVERIFIED"
+             data["isVerified"] = false
+        }
+        FirebaseFirestore.getInstance().collection("users").document(uid)
+            .set(data, com.google.firebase.firestore.SetOptions.merge())
+            .addOnSuccessListener {
+                loadAllUsers()
+                logActivity("ADMIN_TOGGLE_SUSPENSION", "Updated suspension for $uid to $newSuspension")
+            }
+    }
+
+    fun updateUserIdNumber(uid: String, newIdNumber: String) {
+        val data = mapOf(
+            "idNumber" to newIdNumber
+        )
+        FirebaseFirestore.getInstance().collection("users").document(uid)
+            .set(data, com.google.firebase.firestore.SetOptions.merge())
+            .addOnSuccessListener {
+                loadAllUsers()
+                logActivity("ADMIN_UPDATE_ID_NUMBER", "Updated ID number for $uid to $newIdNumber")
+            }
+    }
+
+    fun logActivity(actionType: String, description: String, location: String = "Lieu non spécifié") {
         viewModelScope.launch {
             val ts = System.currentTimeMillis()
             activityLogDao.insertLog(
                 com.example.data.ActivityLogEntity(
                     timestamp = ts,
                     actionType = actionType,
-                    description = description
+                    description = description,
+                    location = location
                 )
             )
             
@@ -358,7 +398,8 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 val data = hashMapOf(
                     "timestamp" to ts,
                     "actionType" to actionType,
-                    "description" to description
+                    "description" to description,
+                    "location" to location
                 )
                 FirebaseFirestore.getInstance().collection("users").document(user.uid)
                     .collection("activity_logs").add(data)
@@ -436,6 +477,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                 docType = existing?.docType ?: "",
                                 docNumber = existing?.docNumber ?: "",
                                 issuingCountry = existing?.issuingCountry ?: "",
+                                idNumber = it.idNumber.ifEmpty { existing?.idNumber?.takeIf { id -> id.isNotBlank() } ?: "IDM-${user.uid.take(8).uppercase()}" },
                                 lastSyncTime = System.currentTimeMillis()
                             ).encrypted(cryptoManager)
                         )
@@ -1095,11 +1137,15 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
         viewModelScope.launch {
             try {
+                val existing = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
+                val newIdNumber = existing?.idNumber?.takeIf { it.isNotBlank() } ?: "IDM-${user.uid.take(8).uppercase()}"
+                
                 // Public profile data
                 val publicProfile = com.example.data.PublicProfile(
                     uid = user.uid,
                     fullName = fullName,
                     community = community,
+                    idNumber = newIdNumber,
                     updatedAt = System.currentTimeMillis()
                 )
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
@@ -1122,7 +1168,6 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     .set(privateIdentity, com.google.firebase.firestore.SetOptions.merge())
 
                 // Local Room cache with Hardware key encryption
-                val existing = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
                 val updatedProfile = com.example.data.UserProfileEntity(
                     uid = user.uid,
                     fullName = fullName,
@@ -1138,6 +1183,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     docType = docType,
                     docNumber = docNumber,
                     issuingCountry = issuingCountry,
+                    idNumber = newIdNumber,
                     lastSyncTime = System.currentTimeMillis()
                 ).encrypted(cryptoManager)
                 userProfileDao.insertUserProfile(updatedProfile)
@@ -1223,6 +1269,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                                 docType = existing?.docType ?: "",
                                                 docNumber = existing?.docNumber ?: "",
                                                 issuingCountry = existing?.issuingCountry ?: "",
+                                                idNumber = existing?.idNumber?.takeIf { id -> id.isNotBlank() } ?: "IDM-${user.uid.take(8).uppercase()}",
                                                 lastSyncTime = System.currentTimeMillis()
                                             ).encrypted(cryptoManager)
                                         )
@@ -1458,6 +1505,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                 docType = privateIdentity?.docType ?: "",
                                 docNumber = privateIdentity?.docNumber ?: "",
                                 issuingCountry = privateIdentity?.issuingCountry ?: "",
+                                idNumber = local?.idNumber?.takeIf { it.isNotBlank() } ?: "IDM-${user.uid.take(8).uppercase()}",
                                 lastSyncTime = System.currentTimeMillis()
                             )
 

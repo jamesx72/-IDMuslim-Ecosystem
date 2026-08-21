@@ -9,5 +9,7 @@ data class UserDto(
     val community: String = "",
     val expiryDate: String = "",
     val country: String = "",
-    val membershipStatus: String = "PENDING"
+    val membershipStatus: String = "PENDING",
+    val idNumber: String = "",
+    val isSuspended: Boolean = false
 )

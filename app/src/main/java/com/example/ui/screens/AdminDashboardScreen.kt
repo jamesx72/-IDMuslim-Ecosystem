@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Search
@@ -72,7 +73,8 @@ fun AdminDashboardScreen(viewModel: EventViewModel) {
     val filteredMembers = remember(searchQuery, selectedFilter, usersList) {
         usersList.filter { member ->
             val matchesQuery = member.fullName.contains(searchQuery, ignoreCase = true) ||
-                               member.uid.contains(searchQuery, ignoreCase = true)
+                               member.uid.contains(searchQuery, ignoreCase = true) ||
+                               member.idNumber.contains(searchQuery, ignoreCase = true)
             val matchesFilter = when (selectedFilter) {
                 "Vérifiés" -> member.isVerified
                 "Non Vérifiés" -> !member.isVerified
@@ -204,9 +206,12 @@ fun AdminDashboardScreen(viewModel: EventViewModel) {
             }
 
             items(filteredMembers) { member ->
-                MemberListItem(member) {
-                    viewModel.toggleUserVerification(member.uid, member.isVerified)
-                }
+                MemberListItem(
+                    member = member,
+                    onToggle = { viewModel.toggleUserVerification(member.uid, member.isVerified) },
+                    onEditId = { newId -> viewModel.updateUserIdNumber(member.uid, newId) },
+                    onSuspendToggle = { viewModel.toggleUserSuspension(member.uid, member.isSuspended) }
+                )
             }
             
             if (filteredMembers.isEmpty()) {
@@ -223,7 +228,39 @@ fun AdminDashboardScreen(viewModel: EventViewModel) {
 }
 
 @Composable
-fun MemberListItem(member: com.example.data.UserDto, onToggle: () -> Unit) {
+fun MemberListItem(member: com.example.data.UserDto, onToggle: () -> Unit, onEditId: (String) -> Unit, onSuspendToggle: () -> Unit = {}) {
+    var showEditDialog by remember { mutableStateOf(false) }
+    
+    if (showEditDialog) {
+        var editIdValue by remember { mutableStateOf(member.idNumber) }
+        AlertDialog(
+            onDismissRequest = { showEditDialog = false },
+            title = { Text("Modifier le N° de Citoyen") },
+            text = {
+                OutlinedTextField(
+                    value = editIdValue,
+                    onValueChange = { editIdValue = it },
+                    label = { Text("N° de Citoyen") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    onEditId(editIdValue)
+                    showEditDialog = false
+                }) {
+                    Text("Enregistrer")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditDialog = false }) {
+                    Text("Annuler")
+                }
+            }
+        )
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -246,34 +283,71 @@ fun MemberListItem(member: com.example.data.UserDto, onToggle: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(
-                    text = member.uid,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .background(
-                        if (member.isVerified) Color(0xFF34D399).copy(alpha = 0.2f) else Color(0xFFFBBF24).copy(alpha = 0.2f),
-                        RoundedCornerShape(50)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = member.idNumber.ifEmpty { "ID: ${member.uid.take(8).uppercase()}" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
-                    .clickable { onToggle() }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(onClick = { showEditDialog = true }, modifier = Modifier.size(24.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Edit, 
+                            contentDescription = "Edit ID",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Row(
                     modifier = Modifier
-                        .size(8.dp)
-                        .background(if (member.isVerified) Color(0xFF34D399) else Color(0xFFFBBF24), CircleShape)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (member.isVerified) "Vérifié" else "Non Vérifié",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (member.isVerified) Color(0xFF0F5132) else Color(0xFF92400E),
-                    fontWeight = FontWeight.Bold
-                )
+                        .background(
+                            if (member.isVerified) Color(0xFF34D399).copy(alpha = 0.2f) else Color(0xFFFBBF24).copy(alpha = 0.2f),
+                            RoundedCornerShape(50)
+                        )
+                        .clickable { onToggle() }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(if (member.isVerified) Color(0xFF34D399) else Color(0xFFFBBF24), CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (member.isVerified) "Vérifié" else "Non Vérifié",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (member.isVerified) Color(0xFF0F5132) else Color(0xFF92400E),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .background(
+                            if (member.isSuspended) Color(0xFFEF4444).copy(alpha = 0.2f) else Color(0xFF6B7280).copy(alpha = 0.2f),
+                            RoundedCornerShape(50)
+                        )
+                        .clickable { onSuspendToggle() }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(if (member.isSuspended) Color(0xFFEF4444) else Color(0xFF6B7280), CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (member.isSuspended) "Suspendu" else "Suspendre",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (member.isSuspended) Color(0xFF991B1B) else Color(0xFF374151),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }

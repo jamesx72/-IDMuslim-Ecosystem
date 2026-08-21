@@ -61,6 +61,10 @@ object PassGenerator {
                 "message": "$memberId-$verificationStatus",
                 "format": "PKBarcodeFormatQR",
                 "messageEncoding": "iso-8859-1"
+              },
+              "nfc": {
+                "message": "$memberId",
+                "encryptionPublicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE//..."
               }
             }
         """.trimIndent()

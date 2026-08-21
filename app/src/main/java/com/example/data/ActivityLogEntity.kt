@@ -8,5 +8,6 @@ data class ActivityLogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long,
     val actionType: String,
-    val description: String
+    val description: String,
+    val location: String = "Lieu non spécifié"
 )

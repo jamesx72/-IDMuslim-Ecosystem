@@ -36,7 +36,8 @@ class ProfileApduService : HostApduService() {
                     com.example.data.ActivityLogEntity(
                         timestamp = System.currentTimeMillis(),
                         actionType = "NFC_VERIFIED",
-                        description = "Digital ID read via NFC terminal"
+                        description = "Digital ID read via NFC terminal",
+                        location = "Borne d'Entrée / Lecteur NFC"
                     )
                 )
             }

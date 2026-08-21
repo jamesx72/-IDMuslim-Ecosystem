@@ -41,6 +41,7 @@ data class PublicProfile(
     var isVerified: Boolean = false,
     var community: String = "",
     var expiryDate: String = "", // Profile or membership expiry
+    var idNumber: String = "", // Unique ID Number
     var updatedAt: Long = System.currentTimeMillis(),
     
     // Local Community Metadata Model

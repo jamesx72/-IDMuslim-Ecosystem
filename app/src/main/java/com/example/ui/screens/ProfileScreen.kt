@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Security
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Edit
@@ -209,12 +211,9 @@ fun ProfileScreen(
 ) {
     val firebaseUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
     val cachedUserProfile by viewModel.cachedUserProfile.collectAsStateWithLifecycle()
-    val memberId = remember(firebaseUser) {
-        if (firebaseUser != null) {
-            "IDM-${firebaseUser.uid.take(8).uppercase()}"
-        } else {
-            "IDM-9928-441-2024"
-        }
+    val memberId = remember(firebaseUser, cachedUserProfile) {
+        cachedUserProfile?.idNumber?.takeIf { it.isNotBlank() } ?: 
+        if (firebaseUser != null) "IDM-${firebaseUser.uid.take(8).uppercase()}" else "IDM-9928-441-2024"
     }
     val memberEmail = firebaseUser?.email ?: "user@example.com"
     val displayName = firebaseUser?.displayName ?: memberEmail.substringBefore("@")
@@ -1194,6 +1193,13 @@ fun ProfileScreen(
                 }
             } else if (selectedTab == 4) {
                 if (isAuthenticated) {
+                    val combinedLogs = remember(userActivityLogs, activityLogs) {
+                        val remote = userActivityLogs.map { 
+                            com.example.data.ActivityLogEntity(id = 0, timestamp = it.timestamp, actionType = it.actionType, description = it.description, location = it.location)
+                        }
+                        (remote + activityLogs).distinctBy { "${it.timestamp}_${it.actionType}" }.sortedByDescending { it.timestamp }
+                    }
+
                     item {
                         Text(
                             text = Translations.get(language, "tab_activity"),
@@ -1204,10 +1210,10 @@ fun ProfileScreen(
                         )
                     }
                     item {
-                        val chartEntryModel = remember(userActivityLogs) {
+                        val chartEntryModel = remember(combinedLogs) {
                             val counts = mutableMapOf<Int, Int>()
                             val calendar = java.util.Calendar.getInstance()
-                            userActivityLogs.forEach { log ->
+                            combinedLogs.forEach { log ->
                                 calendar.timeInMillis = log.timestamp
                                 val month = calendar.get(java.util.Calendar.MONTH)
                                 counts[month] = counts.getOrDefault(month, 0) + 1
@@ -1259,7 +1265,7 @@ fun ProfileScreen(
                         }
                     }
 
-                    if (userActivityLogs.isEmpty()) {
+                    if (combinedLogs.isEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier.fillMaxWidth().height(200.dp),
@@ -1273,7 +1279,7 @@ fun ProfileScreen(
                             }
                         }
                     } else {
-                        items(userActivityLogs) { log ->
+                        items(combinedLogs) { log ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1292,13 +1298,13 @@ fun ProfileScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Info,
+                                            imageVector = if (log.actionType == "NFC_VERIFIED") Icons.Default.Nfc else Icons.Default.Info,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.onPrimaryContainer
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(16.dp))
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = log.actionType,
                                             style = MaterialTheme.typography.titleMedium,
@@ -1311,6 +1317,21 @@ fun ProfileScreen(
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                         )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.LocationOn,
+                                                contentDescription = "Location",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = log.location,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(log.timestamp)),
@@ -3436,7 +3457,9 @@ fun CredentialsDashboardSection(
     onDocumentUpload: () -> Unit = {},
     onStartVerification: () -> Unit = {}
 ) {
-    val certColors = if (isVerified) {
+    val certColors = if (verificationStatus == "SUSPENDED") {
+        listOf(Color(0xFF991B1B), Color(0xFF7F1D1D)) // Dark Red for suspended
+    } else if (isVerified) {
         listOf(Color(0xFF0F5A47), Color(0xFF1B4D3E)) // Dark Emerald for verified
     } else {
         listOf(Color(0xFF4A4A4A), Color(0xFF2C2C2C)) // Dark Slate for unverified
@@ -3673,10 +3696,10 @@ fun CredentialsDashboardSection(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isVerified) "VERIFIED" else verificationStatus.ifEmpty { "UNVERIFIED" },
+                                text = if (verificationStatus == "SUSPENDED") "SUSPENDED" else if (isVerified) "VERIFIED" else verificationStatus.ifEmpty { "UNVERIFIED" },
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isVerified) Color(0xFF25D366) else Color.White.copy(alpha = 0.5f)
+                                color = if (verificationStatus == "SUSPENDED") Color(0xFFEF4444) else if (isVerified) Color(0xFF25D366) else Color.White.copy(alpha = 0.5f)
                             )
                         }
                     }
@@ -3715,38 +3738,98 @@ fun CredentialsDashboardSection(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Generating Payload conforming to secure checks
-                val timestamp = remember { System.currentTimeMillis() }
-                val currentSignature = "dynamic-shield-${memberId.take(5)}"
-                val securePayload = """
-                    {
-                      "id": "$memberId",
-                      "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
-                      "issuedAt": $timestamp,
-                      "sig": "$currentSignature",
-                      "algorithm": "SHA-256"
-                    }
-                """.trimIndent()
-                val qrBitmap = remember(securePayload) {
-                    try {
-                        QRCodeGenerator.generateQRCode(securePayload, 450)
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
+                var isBiometricUnlocked by remember { mutableStateOf(false) }
+                val activity = context as? androidx.fragment.app.FragmentActivity
+                val canAuthenticate = remember { com.example.utils.BiometricUtils.isBiometricAvailable(context) }
 
-                if (qrBitmap != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(200.dp)
-                            .background(Color.White, RoundedCornerShape(16.dp))
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
+                if (!isBiometricUnlocked && canAuthenticate && activity != null) {
+                    Button(
+                        onClick = {
+                            com.example.utils.BiometricUtils.authenticate(
+                                activity = activity,
+                                onSuccess = { isBiometricUnlocked = true },
+                                onError = { /* User cancelled or failed */ }
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Image(
-                            bitmap = qrBitmap.asImageBitmap(),
-                            contentDescription = "Secure Verification QR"
-                        )
+                        Icon(Icons.Default.Fingerprint, contentDescription = "Unlock", modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Déverrouiller le Jeton")
+                    }
+                } else {
+                    // Generating Payload conforming to secure checks
+                    val timestamp = remember { System.currentTimeMillis() }
+                    val currentSignature = "dynamic-shield-${memberId.take(5)}"
+                    val securePayload = """
+                        {
+                          "id": "$memberId",
+                          "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
+                          "issuedAt": $timestamp,
+                          "sig": "$currentSignature",
+                          "algorithm": "SHA-256"
+                        }
+                    """.trimIndent()
+                    val qrBitmap = remember(securePayload) {
+                        try {
+                            QRCodeGenerator.generateQRCode(securePayload, 450)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                    
+                    val barcodeBitmap = remember(memberId, verificationStatus) {
+                        try {
+                            QRCodeGenerator.generateBarcode("$memberId-${verificationStatus.ifEmpty { "UNVERIFIED" }}", 600, 150)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+    
+                    if (qrBitmap != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(200.dp)
+                                .background(Color.White, RoundedCornerShape(16.dp))
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "Secure Verification QR"
+                            )
+                        }
+                    }
+                    
+                    if (barcodeBitmap != null) {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.85f)
+                                .background(Color.White, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Image(
+                                    bitmap = barcodeBitmap.asImageBitmap(),
+                                    contentDescription = "ID Barcode",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(50.dp),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.FillBounds
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = memberId,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = Color.Black,
+                                    letterSpacing = 3.sp
+                                )
+                            }
+                        }
                     }
                 }
 
