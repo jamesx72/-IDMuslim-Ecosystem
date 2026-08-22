@@ -63,6 +63,7 @@ fun SecurePdfExportDialog(
     var includePhoto by remember { mutableStateOf(true) }
     var includeQrCode by remember { mutableStateOf(true) }
     var includeBarcode by remember { mutableStateOf(true) }
+    var signLocally by remember { mutableStateOf(true) }
     var customNote by remember { mutableStateOf("") }
 
     var isGenerating by remember { mutableStateOf(false) }
@@ -479,6 +480,17 @@ fun SecurePdfExportDialog(
                                 Text("Inclure Code-barres Membre", style = MaterialTheme.typography.bodySmall)
                                 Checkbox(checked = includeBarcode, onCheckedChange = { includeBarcode = it })
                             }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Apposer Signature Cryptographique (ECDSA)", style = MaterialTheme.typography.bodySmall)
+                                    Text("Signe numériquement le document via le KeyStore de votre appareil.", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Checkbox(checked = signLocally, onCheckedChange = { signLocally = it })
+                            }
                         }
                     }
 
@@ -528,6 +540,11 @@ fun SecurePdfExportDialog(
                             isGenerating = true
                             generationError = null
 
+                            val signature = if (signLocally) {
+                                val payloadToSign = "$memberId-$fullName-${System.currentTimeMillis()}"
+                                com.example.utils.CryptoSigner.signPayload(payloadToSign)
+                            } else null
+
                             val options = PdfGenerator.PdfGenerationOptions(
                                 password = if (isPasswordProtected) password else "",
                                 isPasswordProtected = isPasswordProtected,
@@ -536,7 +553,8 @@ fun SecurePdfExportDialog(
                                 includePhoto = includePhoto,
                                 includeQrCode = includeQrCode,
                                 includeBarcode = includeBarcode,
-                                customNote = customNote
+                                customNote = customNote,
+                                digitalSignature = signature
                             )
 
                             PdfGenerator.generateSecurePdf(

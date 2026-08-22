@@ -1,8 +1,25 @@
 package com.example.ui.screens
 
+import android.Manifest
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import java.util.concurrent.Executors
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.app.Activity
+import android.os.Bundle
+import android.nfc.NfcAdapter
+import android.nfc.tech.IsoDep
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -56,7 +73,7 @@ data class VerificationResult(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun ScannerScreen(viewModel: EventViewModel? = null) {
     val context = LocalContext.current
@@ -77,6 +94,14 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Scanner Caméra", "Saisie Manuelle", "Lecteur NFC", "Historique")
+
+    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+    
+    LaunchedEffect(Unit) {
+        if (!cameraPermissionState.status.isGranted) {
+            cameraPermissionState.launchPermissionRequest()
+        }
+    }
 
     var isFlashOn by remember { mutableStateOf(false) }
     var isScanningActive by remember { mutableStateOf(!isSuspendedOrRevoked) }
@@ -196,6 +221,52 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
             com.example.utils.HapticHelper.performAuthError(context)
         }
         viewModel?.logActivity("VERIFICATION_SCAN", "Scanned member ID: ${res.memberId} - Status: ${res.status}")
+    }
+
+    val activity = context as? Activity
+    DisposableEffect(selectedTab) {
+        val nfcAdapter = NfcAdapter.getDefaultAdapter(context)
+        if (selectedTab == 2 && nfcAdapter != null && activity != null) {
+            val options = Bundle()
+            options.putInt(NfcAdapter.EXTRA_READER_PRESENCE_CHECK_DELAY, 250)
+            nfcAdapter.enableReaderMode(
+                activity,
+                { tag ->
+                    val isoDep = IsoDep.get(tag)
+                    if (isoDep != null) {
+                        try {
+                            isoDep.connect()
+                            val selectApdu = byteArrayOf(
+                                0x00.toByte(), 0xA4.toByte(), 0x04.toByte(), 0x00.toByte(),
+                                0x07.toByte(), 0xF0.toByte(), 0x01.toByte(), 0x02.toByte(),
+                                0x03.toByte(), 0x04.toByte(), 0x05.toByte(), 0x06.toByte()
+                            )
+                            val response = isoDep.transceive(selectApdu)
+                            if (response.size >= 2 && response[response.size - 2] == 0x90.toByte() && response[response.size - 1] == 0x00.toByte()) {
+                                val payloadBytes = response.copyOfRange(0, response.size - 2)
+                                val payload = String(payloadBytes, Charsets.UTF_8)
+                                activity.runOnUiThread {
+                                    if (!showResultDialog) {
+                                        triggerVerification(payload)
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        } finally {
+                            try { isoDep.close() } catch (e: Exception) {}
+                        }
+                    }
+                },
+                NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
+                options
+            )
+        }
+        onDispose {
+            if (nfcAdapter != null && activity != null) {
+                nfcAdapter.disableReaderMode(activity)
+            }
+        }
     }
 
     Scaffold(
@@ -351,6 +422,65 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                         )
                                     }
                                 } else {
+                                    if (cameraPermissionState.status.isGranted) {
+                                        val lifecycleOwner = LocalLifecycleOwner.current
+                                        AndroidView(
+                                            factory = { ctx ->
+                                                val previewView = PreviewView(ctx)
+                                                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+
+                                                cameraProviderFuture.addListener({
+                                                    val cameraProvider = cameraProviderFuture.get()
+                                                    val preview = Preview.Builder().build().also {
+                                                        it.setSurfaceProvider(previewView.surfaceProvider)
+                                                    }
+
+                                                    val imageAnalysis = ImageAnalysis.Builder()
+                                                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                                        .build()
+                                                        .also {
+                                                            it.setAnalyzer(
+                                                                Executors.newSingleThreadExecutor(),
+                                                                com.example.utils.QrCodeAnalyzer { qrText ->
+                                                                    if (!showResultDialog) {
+                                                                        coroutineScope.launch {
+                                                                            triggerVerification(qrText)
+                                                                        }
+                                                                    }
+                                                                }
+                                                            )
+                                                        }
+
+                                                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+                                                    try {
+                                                        cameraProvider.unbindAll()
+                                                        cameraProvider.bindToLifecycle(
+                                                            lifecycleOwner,
+                                                            cameraSelector,
+                                                            preview,
+                                                            imageAnalysis
+                                                        )
+                                                    } catch (exc: Exception) {
+                                                        // Handle exception
+                                                    }
+                                                }, ContextCompat.getMainExecutor(ctx))
+
+                                                previewView
+                                            },
+                                            modifier = Modifier.fillMaxSize().padding(1.dp).clip(RoundedCornerShape(24.dp))
+                                        )
+                                    } else {
+                                        Text(
+                                            "AUTORISATION CAMÉRA REQUISE",
+                                            color = Color.White.copy(alpha = 0.5f),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            letterSpacing = 2.sp
+                                        )
+                                    }
+
                                     // 4 Corner Brackets
                                     Box(
                                         modifier = Modifier
@@ -385,15 +515,6 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                                     listOf(Color.Transparent, Color(0xFF10B981), Color(0xFF34D399), Color(0xFF10B981), Color.Transparent)
                                                 )
                                             )
-                                    )
-
-                                    Text(
-                                        "ALIGNER LE QR CODE",
-                                        color = Color.White.copy(alpha = 0.5f),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
-                                        letterSpacing = 2.sp
                                     )
                                 }
                             }

@@ -46,7 +46,8 @@ object PdfGenerator {
         val includeQrCode: Boolean = true,
         val includeBarcode: Boolean = true,
         val includePhoto: Boolean = true,
-        val customNote: String = ""
+        val customNote: String = "",
+        val digitalSignature: String? = null
     )
 
     /**
@@ -454,7 +455,13 @@ object PdfGenerator {
         paint.color = Color.parseColor("#0F172A")
         paint.textSize = 7.5f
         paint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
-        canvas.drawText(docUuid, backDetailsStartX, backTextY + 10f, paint)
+        if (options.digitalSignature != null) {
+            val sig = options.digitalSignature
+            val firstLine = sig.take(18) + "..."
+            canvas.drawText("ECDSA:$firstLine", backDetailsStartX, backTextY + 10f, paint)
+        } else {
+            canvas.drawText(docUuid, backDetailsStartX, backTextY + 10f, paint)
+        }
 
         backTextY += 24f
         paint.color = Color.parseColor("#475569")
@@ -694,6 +701,19 @@ object PdfGenerator {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         canvas.drawText("Empreinte SHA-256 : $docUuid", 60f, sealY + 16f, paint)
         canvas.drawText("Généré le : $currentDate • Prêt pour impression physique & archivage", 60f, sealY + 30f, paint)
+        
+        if (options.digitalSignature != null) {
+            paint.color = accentColor
+            paint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            val sigText = options.digitalSignature.chunked(60).joinToString("\n")
+            var sigY = sealY + 44f
+            canvas.drawText("Signature ECDSA (Keystore Local) :", 60f, sigY, paint)
+            paint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+            for (line in sigText.split("\n")) {
+                sigY += 12f
+                canvas.drawText(line, 60f, sigY, paint)
+            }
+        }
     }
 
     /**

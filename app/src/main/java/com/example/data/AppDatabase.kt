@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import net.sqlcipher.database.SupportFactory
+import com.example.security.DatabaseKeyManager
 
 @Database(entities = [EventEntity::class, TicketEntity::class, WaitlistEntity::class, ActivityLogEntity::class, CommunityPostEntity::class, UserProfileEntity::class, DocumentEntity::class, MosqueSearchEntity::class], version = 9, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
@@ -20,12 +22,16 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
+                val passphrase = DatabaseKeyManager.getPassphrase(context)
+                val factory = SupportFactory(passphrase)
+                
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "idmuslim_database"
+                    "idmuslim_database_secure"
                 )
                 .fallbackToDestructiveMigration()
+                .openHelperFactory(factory)
                 .build()
 
                 INSTANCE = instance

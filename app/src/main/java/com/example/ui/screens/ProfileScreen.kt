@@ -64,6 +64,7 @@ import com.example.data.TicketEntity
 import com.example.ui.viewmodels.EventViewModel
 import com.example.utils.QRCodeGenerator
 import com.example.ui.components.IslamicDateHeader
+import com.example.ui.locales.Translations
 
 import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
@@ -72,135 +73,6 @@ import com.patrykandpatrick.vico.compose.chart.column.columnChart
 import com.patrykandpatrick.vico.core.entry.entryModelOf
 import com.patrykandpatrick.vico.core.axis.AxisPosition
 import com.patrykandpatrick.vico.core.axis.formatter.AxisValueFormatter
-
-
-object Translations {
-    fun get(lang: String, key: String): String {
-        val strings = mapOf(
-            "fr" to mapOf(
-                "identity_card" to "CARTE D'IDENTITÉ",
-                "date_of_birth" to "DATE DE NAISSANCE",
-                "residence" to "RÉSIDENCE",
-                "id_number" to "N° IDENTIFIANT",
-                "expiry_date" to "DATE EXPIRATION",
-                "user" to "UTILISATEUR",
-                "not_specified" to "Non spécifié",
-                "personal_info" to "Informations Personnelles",
-                "full_name" to "Nom complet",
-                "dob_label" to "Date de naissance (JJ/MM/AAAA)",
-                "residence_label" to "Lieu de résidence",
-                "save" to "Sauvegarder",
-                "edit" to "Modifier",
-                "privacy_msg" to "Vos données sont protégées par un chiffrement sécurisé et ne sont partagées avec personne.",
-                "take_photo" to "Photo",
-                "signature" to "SIGNATURE",
-                "card_theme" to "Thème",
-                "language" to "Langue",
-                "history" to "Historique d'Événements",
-                "no_participation" to "Aucune participation pour l'instant.",
-                "verified_premium" to "VÉRIFIÉ PREMIUM",
-                "unverified" to "NON VÉRIFIÉ",
-                "logout" to "Déconnexion",
-                "tab_id_card" to "Carte Identité",
-                "tab_dashboard" to "Justificatifs",
-                "tab_history" to "Historique",
-                "credential_certificate" to "Attestation d'Identité Véritable",
-                "verification_level" to "Niveau de Vérification",
-                "cryptographic_proof" to "Preuve Sécurisée",
-                "security_integrity" to "Preuve Cryptographique d'Intégrité",
-                "copy_sig" to "Copier la Signature",
-                "active_certificates" to "Justificatifs Actifs (Garantis)",
-                "authorized_by" to "Autorisé par la technologie IDMuslim Shield",
-                "level_emerald" to "Niveau Émeraude (Vérifié Sécurisé)",
-                "faith_declaration" to "Sache donc qu’en vérité il n’y a point de divinité à part Allah",
-                "expiry" to "EXPIRATION",
-                "gov_info" to "INFORMATIONS GOUVERNEMENTALES",
-                "passport_num" to "Numéro de Passeport",
-                "license_num" to "Numéro de Permis",
-                "hidden_field" to "••••••"
-            ),
-            "en" to mapOf(
-                "identity_card" to "IDENTITY CARD",
-                "date_of_birth" to "DATE OF BIRTH",
-                "residence" to "RESIDENCE",
-                "id_number" to "ID NUMBER",
-                "expiry_date" to "EXPIRY DATE",
-                "user" to "USER",
-                "not_specified" to "Not specified",
-                "personal_info" to "Personal Information",
-                "full_name" to "Full Name",
-                "dob_label" to "Date of Birth (DD/MM/YYYY)",
-                "residence_label" to "Place of Residence",
-                "save" to "Save",
-                "edit" to "Edit",
-                "privacy_msg" to "Your data is protected by secure encryption and is not shared with anyone.",
-                "take_photo" to "Photo",
-                "signature" to "SIGNATURE",
-                "card_theme" to "Theme",
-                "language" to "Language",
-                "history" to "Event History",
-                "no_participation" to "No participation yet.",
-                "verified_premium" to "VERIFIED PREMIUM",
-                "unverified" to "UNVERIFIED",
-                "logout" to "Logout",
-                "tab_id_card" to "ID Card",
-                "tab_dashboard" to "Credentials",
-                "tab_history" to "History",
-                "credential_certificate" to "Verified Identity Credential",
-                "verification_level" to "Verification Level",
-                "cryptographic_proof" to "Secure Proof",
-                "security_integrity" to "Cryptographic Security Proof",
-                "copy_sig" to "Copy Signature",
-                "active_certificates" to "Active Credentials (Guaranteed)",
-                "authorized_by" to "Authorized by IDMuslim Shield Technology",
-                "level_emerald" to "Emerald Class (Secured & Verified)",
-                "faith_declaration" to "Know therefore that there is no god but Allah",
-                "expiry" to "EXPIRY",
-                "gov_info" to "GOVERNMENT INFORMATION",
-                "passport_num" to "Passport Number",
-                "license_num" to "License Number",
-                "hidden_field" to "••••••"
-            ),
-            "ar" to mapOf(
-                "identity_card" to "بطاقة الهوية",
-                "date_of_birth" to "تاريخ الميلاد",
-                "residence" to "مكان الإقامة",
-                "id_number" to "رقم الهوية",
-                "expiry_date" to "تاريخ الإنتهاء",
-                "user" to "مستخدم",
-                "not_specified" to "غير محدد",
-                "personal_info" to "معلومات شخصية",
-                "full_name" to "الاسم الكامل",
-                "dob_label" to "تاريخ الميلاد (يوم/شهر/سنة)",
-                "residence_label" to "مكان الإقامة",
-                "save" to "حفظ",
-                "edit" to "تعديل",
-                "privacy_msg" to "بياناتك محمية بتشفير آمن ولا تتم مشاركتها مع أي شخص.",
-                "take_photo" to "صورة",
-                "signature" to "التوقيع",
-                "card_theme" to "مظهر",
-                "language" to "لغة",
-                "history" to "سجل الأحداث",
-                "no_participation" to "لا توجد مشاركات بعد.",
-                "verified_premium" to "حساب موثق",
-                "unverified" to "حساب غير موثق",
-                "logout" to "تسجيل خروج",
-                "tab_id_card" to "بطاقة الهوية",
-                "tab_dashboard" to "الوثائق",
-                "tab_history" to "السجل",
-                "credential_certificate" to "وثيقة الهوية الموثقة",
-                "verification_level" to "مستوى التوثيق",
-                "cryptographic_proof" to "إثبات آمن",
-                "security_integrity" to "الإثبات الرقمي المشفر",
-                "copy_sig" to "نسخ التوقيع",
-                "active_certificates" to "المستندات النشطة (المضمونة)",
-                "authorized_by" to "صادر عن نظام حماية IDMuslim Shield",
-                "level_emerald" to "المستوى الزمردي (آمن وموثق)"
-            )
-        )
-        return strings[lang]?.get(key) ?: strings["fr"]?.get(key) ?: key
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -229,7 +101,6 @@ fun ProfileScreen(
             "MA"
         }
     }
-
     val expiryDate = remember(firebaseUser) {
         val timestamp = firebaseUser?.metadata?.creationTimestamp ?: System.currentTimeMillis()
         val calendar = java.util.Calendar.getInstance()
@@ -304,6 +175,7 @@ fun ProfileScreen(
     var selectedTab by remember { mutableStateOf(0) }
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showSecurePdfDialog by remember { mutableStateOf(false) }
+    var showVerificationQrDialog by remember { mutableStateOf(false) }
     var showIdReadyAlert by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
     var showFaqDialog by remember { mutableStateOf(false) }
@@ -933,12 +805,33 @@ fun ProfileScreen(
                             )
                         }
                         
+                        val actionScope = rememberCoroutineScope()
+                        DashboardActionCard(
+                            icon = Icons.Default.Security,
+                            title = "Générer Token de Vérification",
+                            subtitle = "Jeton QR dynamique à usage unique",
+                            onClick = {
+                                actionScope.launch {
+                                    val authResult = com.example.utils.BiometricHelper.authenticate(context)
+                                    if (authResult) {
+                                        showVerificationQrDialog = true
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+                        )
+                        
                         DashboardActionCard(
                             icon = Icons.Default.PictureAsPdf,
                             title = "Générer PDF Sécurisé & Imprimable",
                             subtitle = "Format carte portefeuille découpable ou certificat A4 protégé par mot de passe",
                             onClick = {
-                                showSecurePdfDialog = true
+                                actionScope.launch {
+                                    val authResult = com.example.utils.BiometricHelper.authenticate(context)
+                                    if (authResult) {
+                                        showSecurePdfDialog = true
+                                    }
+                                }
                             },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
                         )
@@ -1531,6 +1424,15 @@ fun ProfileScreen(
             onViewId = {
                 selectedTab = 0
             }
+        )
+    }
+
+    if (showVerificationQrDialog) {
+        com.example.ui.components.VerificationTokenDialog(
+            memberId = memberId,
+            fullName = profileFullName,
+            verificationStatus = verificationStatus,
+            onDismiss = { showVerificationQrDialog = false }
         )
     }
 

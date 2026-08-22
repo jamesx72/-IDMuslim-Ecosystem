@@ -114,6 +114,8 @@ dependencies {
   implementation(libs.retrofit)
   implementation(libs.androidx.biometric)
   implementation(libs.zxing.core)
+  implementation("net.zetetic:android-database-sqlcipher:4.5.4")
+  implementation("androidx.sqlite:sqlite-ktx:2.4.0")
   implementation(libs.vico.compose)
   implementation(libs.vico.compose.m3)
   implementation(libs.osmdroid.android)
