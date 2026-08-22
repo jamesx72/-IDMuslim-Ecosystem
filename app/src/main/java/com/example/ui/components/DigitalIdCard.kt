@@ -13,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -48,6 +49,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.filled.Warning
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import com.example.utils.HapticHelper
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 @Composable
 fun DigitalIdCard(
@@ -70,9 +74,19 @@ fun DigitalIdCard(
     lastSyncTime: Long? = null,
     onDownloadPdfClick: (() -> Unit)? = null,
     onShareClick: (() -> Unit)? = null,
+    isSuspended: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val themeColors = when (cardTheme) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    val effectiveSuspended = isSuspended || 
+        verificationStatus.equals("SUSPENDED", ignoreCase = true) || 
+        verificationStatus.equals("REVOKED", ignoreCase = true)
+
+    val themeColors = if (effectiveSuspended) {
+        listOf(Color(0xFF3B0707), Color(0xFF5B1111), Color(0xFF7F1D1D)) // Dark Crimson & Red Tone
+    } else when (cardTheme) {
         1 -> listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)) // Ocean Depth
         2 -> listOf(Color(0xFF23074D), Color(0xFFCC5333)) // Sunset Ruby
         else -> listOf(Color(0xFF0F2027), Color(0xFF14533C), Color(0xFF14533C)) // Emerald
@@ -120,11 +134,25 @@ fun DigitalIdCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .aspectRatio(1.586f) // ID card aspect ratio
+            .then(
+                if (effectiveSuspended) {
+                    Modifier.border(
+                        2.dp,
+                        Brush.horizontalGradient(
+                            listOf(Color(0xFFEF4444), Color(0xFFDC2626), Color(0xFFB91C1C))
+                        ),
+                        RoundedCornerShape(24.dp)
+                    )
+                } else Modifier
+            )
             .graphicsLayer {
                 rotationY = rotation
                 cameraDistance = 12f * density
             },
-        onClick = { isFlipped = !isFlipped },
+        onClick = { 
+            HapticHelper.performCardFlip(context, haptic)
+            isFlipped = !isFlipped 
+        },
         shape = RoundedCornerShape(24.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
@@ -172,6 +200,15 @@ fun DigitalIdCard(
                     }
                 }
         ) {
+            // Red tint overlay for suspended/revoked account status
+            if (effectiveSuspended) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFFDC2626).copy(alpha = 0.28f))
+                )
+            }
+
             if (rotation <= 90f) {
                 AsyncImage(
                     model = "https://images.unsplash.com/photo-1565552645632-d725f8bfc19a?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80",
@@ -194,7 +231,10 @@ fun DigitalIdCard(
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(
-                                onClick = { shieldActive = !shieldActive },
+                                onClick = { 
+                                    HapticHelper.performPrivacyShieldToggle(context, haptic)
+                                    shieldActive = !shieldActive 
+                                },
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
@@ -216,7 +256,10 @@ fun DigitalIdCard(
                         
                         if (onDownloadPdfClick != null) {
                             androidx.compose.material3.IconButton(
-                                onClick = onDownloadPdfClick,
+                                onClick = {
+                                    HapticHelper.performClick(context, haptic)
+                                    onDownloadPdfClick()
+                                },
                                 modifier = Modifier.size(32.dp).padding(start = 8.dp)
                             ) {
                                 Icon(
@@ -245,6 +288,7 @@ fun DigitalIdCard(
                                 isVerified = isVerified,
                                 memberId = memberId,
                                 fullName = fullName,
+                                isSuspended = effectiveSuspended,
                                 size = BadgeSize.SMALL
                             )
                         }
@@ -266,8 +310,15 @@ fun DigitalIdCard(
                             modifier = Modifier
                                 .size(86.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .border(2.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                .clickable(enabled = onPhotoClick != null) { onPhotoClick?.invoke() },
+                                .border(
+                                    2.dp,
+                                    if (effectiveSuspended) Color(0xFFEF4444) else Color.White.copy(alpha = 0.3f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable(enabled = onPhotoClick != null) { 
+                                    HapticHelper.performClick(context, haptic)
+                                    onPhotoClick?.invoke() 
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             if (decodedBitmap != null) {
@@ -496,6 +547,74 @@ fun DigitalIdCard(
                                 .height(40.dp)
                                 .background(Color.White.copy(alpha = 0.3f))
                         )
+                    }
+                }
+            }
+
+            // High Visibility Security Suspended / Revoked Overlay
+            if (effectiveSuspended) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1E0303).copy(alpha = 0.62f))
+                        .graphicsLayer {
+                            if (rotation > 90f) {
+                                rotationY = 180f
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .graphicsLayer {
+                                rotationZ = -6f
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF991B1B).copy(alpha = 0.95f),
+                        border = BorderStroke(2.dp, Color(0xFFEF4444)),
+                        shadowElevation = 14.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Suspended Warning",
+                                tint = Color(0xFFFEE2E2),
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "SUSPENDED",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color.White,
+                                    letterSpacing = 3.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 16.sp
+                                )
+                                Text(
+                                    text = if (language == "fr") "COMPTE RÉVOQUÉ PAR L'ADMINISTRATION" else if (language == "ar") "تم تعليق الحساب من قبل المسؤول" else "ACCOUNT REVOKED BY ADMIN",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFCA5A5),
+                                    fontSize = 8.sp,
+                                    letterSpacing = 0.4.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Suspended Warning",
+                                tint = Color(0xFFFEE2E2),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
                 }
             }

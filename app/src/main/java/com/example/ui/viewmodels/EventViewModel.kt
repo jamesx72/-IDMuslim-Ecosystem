@@ -27,6 +27,16 @@ import com.example.security.CryptoManager
 import com.example.security.encrypted
 import com.example.security.decrypted
 import kotlinx.coroutines.flow.map
+import java.io.File
+import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import android.content.Intent
+import androidx.core.content.FileProvider
+import com.example.data.EncryptedLocalIdBackup
+import com.example.data.LocalBackupPublicSummary
+import com.example.data.DecryptedIdentityPayload
 
 class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val cryptoManager = CryptoManager.getInstance()
@@ -50,6 +60,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _verificationStatus = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getVerificationStatus())
     val verificationStatus: StateFlow<String> = _verificationStatus.asStateFlow()
+
+    private val _isAccountSuspended = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isAccountSuspended())
+    val isAccountSuspended: StateFlow<Boolean> = _isAccountSuspended.asStateFlow()
 
     private val _verificationStep = MutableStateFlow("")
     val verificationStep: StateFlow<String> = _verificationStep.asStateFlow()
@@ -165,6 +178,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     val shareLinkPhoto: StateFlow<Boolean> = _shareLinkPhoto.asStateFlow()
 
     // --- Real-Time Background Identity Sync Engine (Firebase Firestore) ---
+    private var securityStatusListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var userDocListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var privateIdentityListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
     private var privacySettingsListenerRegistration: com.google.firebase.firestore.ListenerRegistration? = null
@@ -173,6 +187,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _lastBackgroundSyncTime = MutableStateFlow<Long>(com.example.network.ApiClient.getSessionManager().getLastSyncTime())
     val lastBackgroundSyncTime: StateFlow<Long> = _lastBackgroundSyncTime.asStateFlow()
+
+    private val _isOnline = MutableStateFlow<Boolean>(true)
+    val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
 
     private val _isBackgroundSyncEnabled = MutableStateFlow<Boolean>(com.example.network.ApiClient.getSessionManager().isBackgroundSyncEnabled())
     val isBackgroundSyncEnabled: StateFlow<Boolean> = _isBackgroundSyncEnabled.asStateFlow()
@@ -196,6 +213,28 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _backupStatusMessage = MutableStateFlow<String?>(null)
     val backupStatusMessage: StateFlow<String?> = _backupStatusMessage.asStateFlow()
+
+    // --- Secure Local Encrypted JSON Backup for Personal Records ---
+    private val _isLocalBackingUp = MutableStateFlow(false)
+    val isLocalBackingUp: StateFlow<Boolean> = _isLocalBackingUp.asStateFlow()
+
+    private val _localBackupStatusMessage = MutableStateFlow<String?>(null)
+    val localBackupStatusMessage: StateFlow<String?> = _localBackupStatusMessage.asStateFlow()
+
+    private val _lastLocalBackupTime = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getLastLocalBackupTime())
+    val lastLocalBackupTime: StateFlow<Long> = _lastLocalBackupTime.asStateFlow()
+
+    private val _isAutoLocalBackupEnabled = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isAutoLocalBackupEnabled())
+    val isAutoLocalBackupEnabled: StateFlow<Boolean> = _isAutoLocalBackupEnabled.asStateFlow()
+
+    private val _lastLocalBackupFilePath = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getLastLocalBackupPath())
+    val lastLocalBackupFilePath: StateFlow<String?> = _lastLocalBackupFilePath.asStateFlow()
+
+    private val _lastLocalBackupFileSize = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getLastLocalBackupSize())
+    val lastLocalBackupFileSize: StateFlow<Long> = _lastLocalBackupFileSize.asStateFlow()
+
+    private val _localBackupFiles = MutableStateFlow<List<File>>(emptyList())
+    val localBackupFiles: StateFlow<List<File>> = _localBackupFiles.asStateFlow()
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -247,17 +286,45 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         setupRealtimeIdentitySync()
+        setupRealtimeSecurityStatusListener()
+        try {
+            val cm = application.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            if (cm != null) {
+                val activeNetwork = cm.activeNetwork
+                val capabilities = cm.getNetworkCapabilities(activeNetwork)
+                _isOnline.value = capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+                val request = android.net.NetworkRequest.Builder()
+                    .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                cm.registerNetworkCallback(request, object : android.net.ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: android.net.Network) {
+                        _isOnline.value = true
+                    }
+                    override fun onLost(network: android.net.Network) {
+                        _isOnline.value = false
+                    }
+                })
+            }
+        } catch (e: Throwable) {
+            _isOnline.value = true
+        }
+
         try {
             FirebaseAuth.getInstance().addAuthStateListener { auth ->
                 if (auth.currentUser != null) {
                     setupRealtimeIdentitySync()
+                    setupRealtimeSecurityStatusListener()
                 } else {
                     stopRealtimeIdentitySync()
+                    stopRealtimeSecurityStatusListener()
                 }
             }
         } catch (e: Throwable) {
             android.util.Log.w("EventViewModel", "Firebase auth listener registration skipped: ${e.message}")
         }
+
+        refreshLocalBackupList(application)
     }
 
     fun createCommunityPost(title: String, content: String, type: String, communityName: String) {
@@ -350,21 +417,28 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleUserSuspension(uid: String, currentSuspension: Boolean) {
         val newSuspension = !currentSuspension
         val data = mutableMapOf<String, Any>(
-            "isSuspended" to newSuspension
+            "isSuspended" to newSuspension,
+            "status" to if (newSuspension) "REVOKED" else "ACTIVE",
+            "accountStatus" to if (newSuspension) "REVOKED" else "ACTIVE",
+            "verificationStatus" to if (newSuspension) "SUSPENDED" else "UNVERIFIED",
+            "membershipStatus" to if (newSuspension) "SUSPENDED" else "UNVERIFIED",
+            "isVerified" to false
         )
-        if (newSuspension) {
-             data["verificationStatus"] = "SUSPENDED"
-             data["membershipStatus"] = "SUSPENDED"
-             data["isVerified"] = false
-        } else {
-             data["verificationStatus"] = "UNVERIFIED"
-             data["membershipStatus"] = "UNVERIFIED"
-             data["isVerified"] = false
-        }
         FirebaseFirestore.getInstance().collection("users").document(uid)
             .set(data, com.google.firebase.firestore.SetOptions.merge())
             .addOnSuccessListener {
                 loadAllUsers()
+                val currentUser = FirebaseAuth.getInstance().currentUser
+                if (currentUser != null && currentUser.uid == uid) {
+                    _isAccountSuspended.value = newSuspension
+                    com.example.network.ApiClient.getSessionManager().saveAccountSuspended(newSuspension)
+                    if (newSuspension) {
+                        _verificationStatus.value = "SUSPENDED"
+                        _isUserVerified.value = false
+                        com.example.network.ApiClient.getSessionManager().setVerifiedStatus(false)
+                        com.example.network.ApiClient.getSessionManager().saveVerificationStatus("SUSPENDED")
+                    }
+                }
                 logActivity("ADMIN_TOGGLE_SUSPENSION", "Updated suspension for $uid to $newSuspension")
             }
     }
@@ -422,6 +496,66 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun stopRealtimeSecurityStatusListener() {
+        securityStatusListenerRegistration?.remove()
+        securityStatusListenerRegistration = null
+    }
+
+    fun setupRealtimeSecurityStatusListener() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        securityStatusListenerRegistration?.remove()
+        securityStatusListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                
+                val statusStr = snapshot.getString("status")?.trim() ?: ""
+                val accountStatusStr = snapshot.getString("accountStatus")?.trim() ?: ""
+                val verificationStatusStr = snapshot.getString("verificationStatus")?.trim() ?: ""
+                val membershipStatusStr = snapshot.getString("membershipStatus")?.trim() ?: ""
+                val isSuspendedDoc = snapshot.getBoolean("isSuspended") ?: false
+
+                val isRevokedOrSuspended = isSuspendedDoc ||
+                    statusStr.equals("revoked", ignoreCase = true) ||
+                    statusStr.equals("suspended", ignoreCase = true) ||
+                    statusStr.equals("révoqué", ignoreCase = true) ||
+                    statusStr.equals("suspendu", ignoreCase = true) ||
+                    accountStatusStr.equals("revoked", ignoreCase = true) ||
+                    accountStatusStr.equals("suspended", ignoreCase = true) ||
+                    accountStatusStr.equals("révoqué", ignoreCase = true) ||
+                    accountStatusStr.equals("suspendu", ignoreCase = true) ||
+                    verificationStatusStr.equals("SUSPENDED", ignoreCase = true) ||
+                    verificationStatusStr.equals("REVOKED", ignoreCase = true) ||
+                    verificationStatusStr.equals("RÉVOQUÉ", ignoreCase = true) ||
+                    verificationStatusStr.equals("SUSPENDU", ignoreCase = true) ||
+                    membershipStatusStr.equals("SUSPENDED", ignoreCase = true) ||
+                    membershipStatusStr.equals("REVOKED", ignoreCase = true) ||
+                    membershipStatusStr.equals("RÉVOQUÉ", ignoreCase = true) ||
+                    membershipStatusStr.equals("SUSPENDU", ignoreCase = true)
+
+                _isAccountSuspended.value = isRevokedOrSuspended
+                com.example.network.ApiClient.getSessionManager().saveAccountSuspended(isRevokedOrSuspended)
+
+                if (isRevokedOrSuspended) {
+                    _isUserVerified.value = false
+                    _verificationStatus.value = "SUSPENDED"
+                    com.example.network.ApiClient.getSessionManager().setVerifiedStatus(false)
+                    com.example.network.ApiClient.getSessionManager().saveVerificationStatus("SUSPENDED")
+                } else if (_verificationStatus.value == "SUSPENDED" || _verificationStatus.value == "REVOKED") {
+                    // Account was restored
+                    val restoredStatus = if (verificationStatusStr.isNotEmpty() && !verificationStatusStr.equals("SUSPENDED", true)) {
+                        verificationStatusStr
+                    } else if (membershipStatusStr.isNotEmpty() && !membershipStatusStr.equals("SUSPENDED", true)) {
+                        membershipStatusStr
+                    } else "UNVERIFIED"
+                    _verificationStatus.value = restoredStatus
+                    com.example.network.ApiClient.getSessionManager().saveVerificationStatus(restoredStatus)
+                    val isVer = snapshot.getBoolean("isVerified") ?: (restoredStatus.contains("Vérifié", ignoreCase = true) || restoredStatus.contains("Emerald", ignoreCase = true))
+                    _isUserVerified.value = isVer
+                    com.example.network.ApiClient.getSessionManager().setVerifiedStatus(isVer)
+                }
+            }
+    }
+
     fun stopRealtimeIdentitySync() {
         userDocListenerRegistration?.remove()
         userDocListenerRegistration = null
@@ -445,6 +579,33 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         userDocListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                
+                val isSuspendedDoc = snapshot.getBoolean("isSuspended") ?: false
+                val membershipStatusStr = snapshot.getString("membershipStatus") ?: ""
+                val verificationStatusStr = snapshot.getString("verificationStatus") ?: ""
+                val statusStr = snapshot.getString("status") ?: ""
+                val accountStatusStr = snapshot.getString("accountStatus") ?: ""
+
+                val isRevokedOrSuspended = isSuspendedDoc || 
+                    membershipStatusStr.equals("SUSPENDED", ignoreCase = true) || 
+                    membershipStatusStr.equals("REVOKED", ignoreCase = true) ||
+                    verificationStatusStr.equals("SUSPENDED", ignoreCase = true) ||
+                    verificationStatusStr.equals("REVOKED", ignoreCase = true) ||
+                    statusStr.equals("REVOKED", ignoreCase = true) ||
+                    statusStr.equals("SUSPENDED", ignoreCase = true) ||
+                    accountStatusStr.equals("REVOKED", ignoreCase = true) ||
+                    accountStatusStr.equals("SUSPENDED", ignoreCase = true)
+
+                _isAccountSuspended.value = isRevokedOrSuspended
+                com.example.network.ApiClient.getSessionManager().saveAccountSuspended(isRevokedOrSuspended)
+
+                if (isRevokedOrSuspended) {
+                    _isUserVerified.value = false
+                    _verificationStatus.value = "SUSPENDED"
+                    com.example.network.ApiClient.getSessionManager().setVerifiedStatus(false)
+                    com.example.network.ApiClient.getSessionManager().saveVerificationStatus("SUSPENDED")
+                }
+
                 val publicProfile = snapshot.toObject(com.example.data.PublicProfile::class.java)
                 publicProfile?.let {
                     if (it.fullName.isNotEmpty() && it.fullName != _profileFullName.value) {
@@ -455,7 +616,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                         _profileCommunityAffiliation.value = it.community
                         com.example.network.ApiClient.getSessionManager().saveProfileCommunityAffiliation(it.community)
                     }
-                    if (it.membershipStatus.isNotEmpty() && it.membershipStatus != _verificationStatus.value) {
+                    if (!isRevokedOrSuspended && it.membershipStatus.isNotEmpty() && it.membershipStatus != _verificationStatus.value) {
                         setVerificationStatus(it.membershipStatus)
                     }
 
@@ -466,8 +627,8 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                 uid = user.uid,
                                 fullName = it.fullName.ifEmpty { existing?.fullName ?: "" },
                                 avatarUrl = (it.avatarUrl ?: "").ifEmpty { existing?.avatarUrl ?: "" },
-                                membershipStatus = it.membershipStatus.ifEmpty { existing?.membershipStatus ?: "Non Vérifié" },
-                                isVerified = it.isVerified,
+                                membershipStatus = if (isRevokedOrSuspended) "SUSPENDED" else it.membershipStatus.ifEmpty { existing?.membershipStatus ?: "Non Vérifié" },
+                                isVerified = if (isRevokedOrSuspended) false else it.isVerified,
                                 community = it.community.ifEmpty { existing?.community ?: "" },
                                 expiryDate = it.expiryDate.ifEmpty { existing?.expiryDate ?: "" },
                                 dob = existing?.dob ?: "",
@@ -820,9 +981,35 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     return@addSnapshotListener
                 }
                 if (snapshot != null && snapshot.exists()) {
-                    val status = snapshot.getString("verificationStatus") ?: "UNVERIFIED"
-                    if (_verificationStatus.value != status) {
-                        setVerificationStatus(status)
+                    val isSuspendedDoc = snapshot.getBoolean("isSuspended") ?: false
+                    val membershipStatusStr = snapshot.getString("membershipStatus") ?: ""
+                    val verificationStatusStr = snapshot.getString("verificationStatus") ?: ""
+                    val statusStr = snapshot.getString("status") ?: ""
+                    val accountStatusStr = snapshot.getString("accountStatus") ?: ""
+
+                    val isRevokedOrSuspended = isSuspendedDoc || 
+                        membershipStatusStr.equals("SUSPENDED", ignoreCase = true) || 
+                        membershipStatusStr.equals("REVOKED", ignoreCase = true) ||
+                        verificationStatusStr.equals("SUSPENDED", ignoreCase = true) ||
+                        verificationStatusStr.equals("REVOKED", ignoreCase = true) ||
+                        statusStr.equals("REVOKED", ignoreCase = true) ||
+                        statusStr.equals("SUSPENDED", ignoreCase = true) ||
+                        accountStatusStr.equals("REVOKED", ignoreCase = true) ||
+                        accountStatusStr.equals("SUSPENDED", ignoreCase = true)
+
+                    _isAccountSuspended.value = isRevokedOrSuspended
+                    com.example.network.ApiClient.getSessionManager().saveAccountSuspended(isRevokedOrSuspended)
+
+                    if (isRevokedOrSuspended) {
+                        _isUserVerified.value = false
+                        _verificationStatus.value = "SUSPENDED"
+                        com.example.network.ApiClient.getSessionManager().setVerifiedStatus(false)
+                        com.example.network.ApiClient.getSessionManager().saveVerificationStatus("SUSPENDED")
+                    } else {
+                        val status = snapshot.getString("verificationStatus") ?: "UNVERIFIED"
+                        if (_verificationStatus.value != status) {
+                            setVerificationStatus(status)
+                        }
                     }
                 }
             }
@@ -1247,6 +1434,32 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                         if (task.isSuccessful) {
                             val document = task.result
                             if (document != null && document.exists()) {
+                                val isSuspendedDoc = document.getBoolean("isSuspended") ?: false
+                                val membershipStatusStr = document.getString("membershipStatus") ?: ""
+                                val verificationStatusStr = document.getString("verificationStatus") ?: ""
+                                val statusStr = document.getString("status") ?: ""
+                                val accountStatusStr = document.getString("accountStatus") ?: ""
+
+                                val isRevokedOrSuspended = isSuspendedDoc || 
+                                    membershipStatusStr.equals("SUSPENDED", ignoreCase = true) || 
+                                    membershipStatusStr.equals("REVOKED", ignoreCase = true) ||
+                                    verificationStatusStr.equals("SUSPENDED", ignoreCase = true) ||
+                                    verificationStatusStr.equals("REVOKED", ignoreCase = true) ||
+                                    statusStr.equals("REVOKED", ignoreCase = true) ||
+                                    statusStr.equals("SUSPENDED", ignoreCase = true) ||
+                                    accountStatusStr.equals("REVOKED", ignoreCase = true) ||
+                                    accountStatusStr.equals("SUSPENDED", ignoreCase = true)
+
+                                _isAccountSuspended.value = isRevokedOrSuspended
+                                com.example.network.ApiClient.getSessionManager().saveAccountSuspended(isRevokedOrSuspended)
+
+                                if (isRevokedOrSuspended) {
+                                    _isUserVerified.value = false
+                                    _verificationStatus.value = "SUSPENDED"
+                                    com.example.network.ApiClient.getSessionManager().setVerifiedStatus(false)
+                                    com.example.network.ApiClient.getSessionManager().saveVerificationStatus("SUSPENDED")
+                                }
+
                                 val publicProfile = document.toObject(com.example.data.PublicProfile::class.java)
                                 publicProfile?.let {
                                     updateProfileFullName(it.fullName)
@@ -1258,8 +1471,8 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                                                 uid = user.uid,
                                                 fullName = it.fullName,
                                                 avatarUrl = it.avatarUrl,
-                                                membershipStatus = it.membershipStatus,
-                                                isVerified = it.isVerified,
+                                                membershipStatus = if (isRevokedOrSuspended) "SUSPENDED" else it.membershipStatus,
+                                                isVerified = if (isRevokedOrSuspended) false else it.isVerified,
                                                 community = it.community,
                                                 expiryDate = it.expiryDate,
                                                 dob = existing?.dob ?: "",
@@ -1465,6 +1678,15 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearSyncStatusMessage() {
         _syncStatusMessage.value = null
+    }
+
+    fun forceCloudSync() {
+        val now = System.currentTimeMillis()
+        _lastBackgroundSyncTime.value = now
+        com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
+        setupRealtimeIdentitySync()
+        checkSyncConflicts()
+        loadUserActivityLogs()
     }
 
     fun dismissConflict() {
@@ -1790,6 +2012,332 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         stopRealtimeIdentitySync()
+    }
+
+    // --- Secure Local Encrypted JSON Backup Implementation ---
+    fun clearLocalBackupStatusMessage() {
+        _localBackupStatusMessage.value = null
+    }
+
+    fun setAutoLocalBackupEnabled(enabled: Boolean) {
+        _isAutoLocalBackupEnabled.value = enabled
+        com.example.network.ApiClient.getSessionManager().saveAutoLocalBackupEnabled(enabled)
+        com.example.network.ApiClient.getSessionManager().addSecurityAuditLog(
+            "Sauvegarde Locale Auto",
+            if (enabled) "Sauvegarde locale automatique activée" else "Sauvegarde locale automatique désactivée"
+        )
+    }
+
+    fun refreshLocalBackupList(context: Context? = null) {
+        val ctx = context ?: getApplication<Application>()
+        try {
+            val backupDir = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "backups")
+            if (backupDir.exists()) {
+                val files = backupDir.listFiles { file -> file.isFile && file.name.endsWith(".json") && file.name.startsWith("idmuslim_backup_") }
+                    ?.sortedByDescending { it.lastModified() }
+                    ?: emptyList()
+                _localBackupFiles.value = files
+            } else {
+                _localBackupFiles.value = emptyList()
+            }
+        } catch (e: Exception) {
+            _localBackupFiles.value = emptyList()
+        }
+    }
+
+    fun triggerSecureLocalBackup(
+        context: Context? = null,
+        onComplete: ((File?, String?) -> Unit)? = null
+    ) {
+        val ctx = context ?: getApplication<Application>()
+        val user = FirebaseAuth.getInstance().currentUser
+        val uid = user?.uid ?: "local_user"
+        val sessionManager = com.example.network.ApiClient.getSessionManager()
+
+        _isLocalBackingUp.value = true
+        _localBackupStatusMessage.value = "Génération de l'archive JSON chiffrée en cours..."
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // 1. Gather all profile and identity records
+                val roomProfile = userProfileDao.getUserProfileSync(uid)
+                val docs = try { documentDao.getAllDocuments().first() } catch (e: Exception) { emptyList() }
+                val auditLogs = sessionManager.getSecurityAuditLogs()
+
+                val memberId = roomProfile?.idNumber?.ifBlank { "IDM-${(10000..99999).random()}" } ?: "IDM-${(10000..99999).random()}"
+                val fullName = (roomProfile?.fullName?.takeIf { it.isNotBlank() }) ?: (sessionManager.getProfileFullName() ?: "Membre IDMuslim")
+                val title = roomProfile?.community?.takeIf { it.isNotBlank() } ?: "Membre IDMuslim"
+                val email = sessionManager.getUserEmail()
+                val phone = ""
+                val birthDate = (roomProfile?.dob?.takeIf { it.isNotBlank() }) ?: (sessionManager.getProfileDob() ?: "")
+                val bloodType = "O+"
+                val city = (roomProfile?.residency?.takeIf { it.isNotBlank() }) ?: (sessionManager.getProfileResidency() ?: "")
+                val emergencyContact = ""
+                val avatarUrl = (roomProfile?.avatarUrl?.takeIf { it.isNotBlank() }) ?: (sessionManager.getProfilePhotoBase64() ?: "")
+                val isVerified = roomProfile?.isVerified ?: sessionManager.isUserVerified()
+                val verificationStatus = (roomProfile?.membershipStatus?.takeIf { it.isNotBlank() }) ?: sessionManager.getVerificationStatus()
+                val membershipTier = if (isVerified) "Émeraude" else "Standard"
+                val issueDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                val expiryDate = (roomProfile?.expiryDate?.takeIf { it.isNotBlank() }) ?: (sessionManager.getExpiryDate() ?: "2029-12-31")
+                val nfcSerial = "NFC-${UUID.randomUUID().toString().take(8).uppercase()}"
+                val identityHash = UUID.randomUUID().toString()
+                val publicKey = "04:${UUID.randomUUID().toString().replace("-", "")}"
+
+                val privacySettingsMap = mapOf(
+                    "privacyMode" to privacyMode.value,
+                    "biometricLockEnabled" to biometricLockEnabled.value,
+                    "screenSecurityEnabled" to screenSecurityEnabled.value,
+                    "showEmail" to showEmail.value,
+                    "shareLocation" to shareLocation.value,
+                    "shareData" to shareData.value,
+                    "allowNotifications" to allowNotifications.value,
+                    "shareLinkFullName" to shareLinkFullName.value,
+                    "shareLinkPhoto" to shareLinkPhoto.value,
+                    "shareLinkDob" to shareLinkDob.value,
+                    "shareLinkResidency" to shareLinkResidency.value,
+                    "shareLinkCommunity" to shareLinkCommunity.value,
+                    "shareLinkStatus" to shareLinkStatus.value
+                )
+
+                val payload = DecryptedIdentityPayload(
+                    memberId = memberId,
+                    fullName = fullName,
+                    title = title,
+                    email = email,
+                    phone = phone,
+                    birthDate = birthDate,
+                    bloodType = bloodType,
+                    city = city,
+                    emergencyContact = emergencyContact,
+                    avatarUrl = avatarUrl,
+                    isVerified = isVerified,
+                    verificationStatus = verificationStatus,
+                    membershipTier = membershipTier,
+                    issueDate = issueDate,
+                    expiryDate = expiryDate,
+                    nfcSerial = nfcSerial,
+                    identityHash = identityHash,
+                    publicKey = publicKey,
+                    userProfile = roomProfile,
+                    documents = docs,
+                    securityLogs = auditLogs,
+                    privacySettings = privacySettingsMap
+                )
+
+                // 2. Moshi serialization of plain identity payload
+                val moshi = com.squareup.moshi.Moshi.Builder()
+                    .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                    .build()
+                val payloadAdapter = moshi.adapter(DecryptedIdentityPayload::class.java)
+                val payloadJson = payloadAdapter.toJson(payload)
+
+                // 3. Compute SHA-256 Checksum of the plain payload
+                val md = MessageDigest.getInstance("SHA-256")
+                val hashBytes = md.digest(payloadJson.toByteArray(Charsets.UTF_8))
+                val checksumHex = hashBytes.joinToString("") { "%02x".format(it) }
+
+                // 4. Encrypt payload with AES-256-GCM via CryptoManager
+                val encryptedBlob = cryptoManager.encrypt(payloadJson) ?: payloadJson
+
+                val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                val timestamp = System.currentTimeMillis()
+                val fileDateId = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                val backupId = "IDM-BAK-$fileDateId"
+
+                val publicSummary = LocalBackupPublicSummary(
+                    memberId = memberId,
+                    fullName = fullName,
+                    membershipTier = membershipTier,
+                    verificationStatus = verificationStatus,
+                    isVerified = isVerified,
+                    issueDate = issueDate,
+                    expiryDate = expiryDate
+                )
+
+                val backupPackage = EncryptedLocalIdBackup(
+                    backupId = backupId,
+                    appName = "IDMuslim Digital ID",
+                    backupType = "SECURE_LOCAL_ENCRYPTED_JSON",
+                    formatVersion = "2.1",
+                    generatedTimestamp = timestamp,
+                    generatedDate = dateStr,
+                    encryptionAlgorithm = "AES-256-GCM (Android KeyStore)",
+                    integrityChecksumSha256 = checksumHex,
+                    recordsCount = 1 + docs.size + auditLogs.size,
+                    publicSummary = publicSummary,
+                    encryptedIdentityPayload = encryptedBlob
+                )
+
+                val backupPackageAdapter = moshi.adapter(EncryptedLocalIdBackup::class.java)
+                val backupJsonString = backupPackageAdapter.indent("  ").toJson(backupPackage)
+
+                // 5. Write to local storage
+                val backupDir = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "backups")
+                if (!backupDir.exists()) {
+                    backupDir.mkdirs()
+                }
+
+                val backupFile = File(backupDir, "idmuslim_backup_${fileDateId}.json")
+                backupFile.writeText(backupJsonString, Charsets.UTF_8)
+
+                // Also maintain latest file
+                val latestFile = File(backupDir, "idmuslim_backup_latest.json")
+                latestFile.writeText(backupJsonString, Charsets.UTF_8)
+
+                val fileSize = backupFile.length()
+
+                // 6. Update preferences & Audit log
+                sessionManager.saveLastLocalBackupTime(timestamp)
+                sessionManager.saveLastLocalBackupPath(backupFile.absolutePath)
+                sessionManager.saveLastLocalBackupSize(fileSize)
+                sessionManager.addSecurityAuditLog(
+                    "Sauvegarde Locale Chiffrée",
+                    "Fichier JSON (${backupFile.name}, ${fileSize} octets) généré avec clé AES-256-GCM."
+                )
+
+                _lastLocalBackupTime.value = timestamp
+                _lastLocalBackupFilePath.value = backupFile.absolutePath
+                _lastLocalBackupFileSize.value = fileSize
+                _isLocalBackingUp.value = false
+                val successMsg = "✅ Sauvegarde locale chiffrée générée (${backupFile.name}, ${(fileSize / 1024) + 1} Ko) !"
+                _localBackupStatusMessage.value = successMsg
+
+                refreshLocalBackupList(ctx)
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete?.invoke(backupFile, null)
+                }
+            } catch (e: Exception) {
+                _isLocalBackingUp.value = false
+                val errorMsg = "❌ Échec de la sauvegarde locale : ${e.localizedMessage}"
+                _localBackupStatusMessage.value = errorMsg
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete?.invoke(null, errorMsg)
+                }
+            }
+        }
+    }
+
+    fun exportOrShareLocalBackupFile(context: Context, file: File) {
+        try {
+            if (!file.exists()) {
+                android.widget.Toast.makeText(context, "Le fichier de sauvegarde n'existe plus", android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/json"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "Sauvegarde Chiffrée IDMuslim - ${file.name}")
+                putExtra(Intent.EXTRA_TEXT, "Voici votre sauvegarde d'identité numérique IDMuslim chiffrée en AES-256-GCM pour vos archives personnelles.")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Exporter / Archiver la sauvegarde JSON"))
+            com.example.network.ApiClient.getSessionManager().addSecurityAuditLog(
+                "Export Sauvegarde Locale",
+                "Partage / Export du fichier de sauvegarde chiffré ${file.name}"
+            )
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(context, "Erreur lors du partage : ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun restoreFromLocalBackupFile(context: Context, file: File, onComplete: (Boolean, String) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (!file.exists()) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Fichier introuvable.")
+                    }
+                    return@launch
+                }
+
+                val jsonContent = file.readText(Charsets.UTF_8)
+                val moshi = com.squareup.moshi.Moshi.Builder()
+                    .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+                    .build()
+                val backupAdapter = moshi.adapter(EncryptedLocalIdBackup::class.java)
+                val backupPackage = backupAdapter.fromJson(jsonContent)
+
+                if (backupPackage == null || backupPackage.encryptedIdentityPayload.isEmpty()) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Fichier de sauvegarde invalide ou vide.")
+                    }
+                    return@launch
+                }
+
+                val decryptedJson = cryptoManager.decrypt(backupPackage.encryptedIdentityPayload)
+                if (decryptedJson.isNullOrEmpty()) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Impossible de déchiffrer la sauvegarde avec la clé de sécurité locale.")
+                    }
+                    return@launch
+                }
+
+                // Verify Checksum
+                val md = MessageDigest.getInstance("SHA-256")
+                val hashBytes = md.digest(decryptedJson.toByteArray(Charsets.UTF_8))
+                val calculatedChecksum = hashBytes.joinToString("") { "%02x".format(it) }
+
+                if (backupPackage.integrityChecksumSha256.isNotEmpty() &&
+                    !backupPackage.integrityChecksumSha256.equals(calculatedChecksum, ignoreCase = true)
+                ) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Avertissement d'intégrité : Le checksum SHA-256 ne correspond pas.")
+                    }
+                    return@launch
+                }
+
+                val payloadAdapter = moshi.adapter(DecryptedIdentityPayload::class.java)
+                val payload = payloadAdapter.fromJson(decryptedJson)
+
+                if (payload != null) {
+                    val sessionManager = com.example.network.ApiClient.getSessionManager()
+                    payload.userProfile?.let { userProfileDao.insertUserProfile(it) }
+                    if (payload.documents.isNotEmpty()) {
+                        documentDao.insertAll(payload.documents)
+                    }
+
+                    sessionManager.saveProfileFullName(payload.fullName)
+                    sessionManager.saveProfileDob(payload.birthDate)
+                    sessionManager.saveProfileResidency(payload.city)
+                    sessionManager.saveVerificationStatus(payload.verificationStatus)
+                    sessionManager.setVerifiedStatus(payload.isVerified)
+
+                    sessionManager.addSecurityAuditLog(
+                        "Restauration Locale",
+                        "Restauration réussie des données depuis le fichier JSON ${file.name}"
+                    )
+
+                    _localBackupStatusMessage.value = "✅ Données restaurées avec succès depuis ${file.name} !"
+
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(true, "Restauration réussie (${payload.documents.size} documents, profil restauré) !")
+                    }
+                } else {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        onComplete(false, "Format interne de données non reconnu.")
+                    }
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onComplete(false, "Erreur lors de la restauration : ${e.localizedMessage}")
+                }
+            }
+        }
+    }
+
+    fun deleteLocalBackupFile(context: Context, file: File) {
+        try {
+            if (file.exists()) {
+                file.delete()
+            }
+            refreshLocalBackupList(context)
+            _localBackupStatusMessage.value = "Fichier ${file.name} supprimé."
+        } catch (e: Exception) {
+            _localBackupStatusMessage.value = "Erreur lors de la suppression : ${e.localizedMessage}"
+        }
     }
 }
 

@@ -33,7 +33,8 @@ fun DigitalVerifiedBadge(
     memberId: String,
     modifier: Modifier = Modifier,
     size: BadgeSize = BadgeSize.SMALL,
-    fullName: String = ""
+    fullName: String = "",
+    isSuspended: Boolean = false
 ) {
     var showDetailsDialog by remember { mutableStateOf(false) }
 
@@ -49,7 +50,11 @@ fun DigitalVerifiedBadge(
         label = "pulseScale"
     )
 
-    val badgeGradient = if (isVerified) {
+    val badgeGradient = if (isSuspended) {
+        Brush.linearGradient(
+            colors = listOf(Color(0xFFEF4444), Color(0xFF991B1B)) // Crimson Red
+        )
+    } else if (isVerified) {
         Brush.linearGradient(
             colors = listOf(Color(0xFF10B981), Color(0xFF047857)) // Vivid Emerald
         )
@@ -67,10 +72,10 @@ fun DigitalVerifiedBadge(
                 .clickable { showDetailsDialog = true }
                 .padding(2.dp),
             shape = RoundedCornerShape(12.dp),
-            color = if (isVerified) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFF3B82F6).copy(alpha = 0.15f),
+            color = if (isSuspended) Color(0xFFEF4444).copy(alpha = 0.2f) else if (isVerified) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFF3B82F6).copy(alpha = 0.15f),
             border = BorderStroke(
                 width = 1.dp,
-                color = if (isVerified) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF3B82F6).copy(alpha = 0.5f)
+                color = if (isSuspended) Color(0xFFEF4444).copy(alpha = 0.7f) else if (isVerified) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF3B82F6).copy(alpha = 0.5f)
             )
         ) {
             Row(
@@ -85,7 +90,7 @@ fun DigitalVerifiedBadge(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.CheckCircle,
+                        imageVector = if (isSuspended) Icons.Default.Info else Icons.Default.CheckCircle,
                         contentDescription = "Badge",
                         tint = Color.White,
                         modifier = Modifier.size(10.dp)
@@ -93,8 +98,8 @@ fun DigitalVerifiedBadge(
                 }
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (isVerified) "VÉRIFIÉ" else "AUTHENTIFIÉ",
-                    color = if (isVerified) Color(0xFF34D399) else Color(0xFF60A5FA),
+                    text = if (isSuspended) "SUSPENDU" else if (isVerified) "VÉRIFIÉ" else "AUTHENTIFIÉ",
+                    color = if (isSuspended) Color(0xFFF87171) else if (isVerified) Color(0xFF34D399) else Color(0xFF60A5FA),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.5.sp

@@ -24,16 +24,19 @@ object BiometricHelper {
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                             super.onAuthenticationError(errorCode, errString)
+                            HapticHelper.performAuthError(context)
                             if (continuation.isActive) continuation.resume(false)
                         }
 
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                             super.onAuthenticationSucceeded(result)
+                            HapticHelper.performAuthSuccess(context)
                             if (continuation.isActive) continuation.resume(true)
                         }
 
                         override fun onAuthenticationFailed() {
                             super.onAuthenticationFailed()
+                            HapticHelper.performAuthError(context)
                         }
                     })
 

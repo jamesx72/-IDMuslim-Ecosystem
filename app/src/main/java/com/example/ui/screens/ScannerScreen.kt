@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -61,11 +62,24 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    val isAccountSuspended by viewModel?.isAccountSuspended?.collectAsState() ?: remember { 
+        mutableStateOf(com.example.network.ApiClient.getSessionManager().isAccountSuspended()) 
+    }
+    val verificationStatus by viewModel?.verificationStatus?.collectAsState() ?: remember { 
+        mutableStateOf(com.example.network.ApiClient.getSessionManager().getVerificationStatus()) 
+    }
+
+    val isSuspendedOrRevoked = isAccountSuspended || 
+        verificationStatus.equals("SUSPENDED", ignoreCase = true) || 
+        verificationStatus.equals("REVOKED", ignoreCase = true) ||
+        verificationStatus.equals("RÉVOQUÉ", ignoreCase = true) ||
+        verificationStatus.equals("SUSPENDU", ignoreCase = true)
+
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Scanner Caméra", "Saisie Manuelle", "Lecteur NFC", "Historique")
 
     var isFlashOn by remember { mutableStateOf(false) }
-    var isScanningActive by remember { mutableStateOf(true) }
+    var isScanningActive by remember { mutableStateOf(!isSuspendedOrRevoked) }
     var manualInput by remember { mutableStateOf("") }
     var scanHistory by remember { mutableStateOf(listOf<VerificationResult>()) }
     var activeVerificationResult by remember { mutableStateOf<VerificationResult?>(null) }
@@ -167,10 +181,20 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
     }
 
     fun triggerVerification(payload: String) {
+        if (isSuspendedOrRevoked) {
+            Toast.makeText(context, "Capacité de scanner désactivée : Compte suspendu ou révoqué par l'administration", Toast.LENGTH_LONG).show()
+            com.example.utils.HapticHelper.performAuthError(context)
+            return
+        }
         val res = parseAndVerifyPayload(payload)
         activeVerificationResult = res
         scanHistory = listOf(res) + scanHistory.take(20)
         showResultDialog = true
+        if (res.isValid) {
+            com.example.utils.HapticHelper.performScanSuccess(context)
+        } else {
+            com.example.utils.HapticHelper.performAuthError(context)
+        }
         viewModel?.logActivity("VERIFICATION_SCAN", "Scanned member ID: ${res.memberId} - Status: ${res.status}")
     }
 
@@ -234,75 +258,144 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Top helper banner
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color(0xFF1E293B).copy(alpha = 0.85f),
-                                modifier = Modifier.padding(top = 8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            // Top helper banner or Suspended Alert Banner
+                            if (isSuspendedOrRevoked) {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color(0xFF7F1D1D).copy(alpha = 0.95f),
+                                    border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth()
                                 ) {
-                                    Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Pointez la caméra vers le QR Code IDMuslim", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Warning, 
+                                            contentDescription = null, 
+                                            tint = Color(0xFFFCA5A5), 
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                "SCANNER DÉSACTIVÉ • COMPTE SUSPENDU", 
+                                                color = Color.White, 
+                                                fontWeight = FontWeight.Bold, 
+                                                fontSize = 12.sp
+                                            )
+                                            Text(
+                                                "La validation et le scan de QR codes sont désactivés par l'administration.", 
+                                                color = Color(0xFFFEE2E2), 
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0xFF1E293B).copy(alpha = 0.85f),
+                                    modifier = Modifier.padding(top = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Pointez la caméra vers le QR Code IDMuslim", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                    }
                                 }
                             }
 
-                            // Viewfinder with animated laser line
+                            // Viewfinder with animated laser line or Locked State
                             Box(
                                 modifier = Modifier
                                     .size(260.dp)
                                     .clip(RoundedCornerShape(24.dp))
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                                    .border(2.dp, Color(0xFF10B981).copy(alpha = 0.6f), RoundedCornerShape(24.dp)),
+                                    .background(if (isSuspendedOrRevoked) Color(0xFF2A0808) else Color.Black.copy(alpha = 0.45f))
+                                    .border(
+                                        2.dp, 
+                                        if (isSuspendedOrRevoked) Color(0xFFEF4444) else Color(0xFF10B981).copy(alpha = 0.6f), 
+                                        RoundedCornerShape(24.dp)
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
-                                // 4 Corner Brackets
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(12.dp)
-                                ) {
-                                    // Top-left
-                                    Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.TopStart))
-                                    Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.TopStart))
-
-                                    // Top-right
-                                    Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.TopEnd))
-                                    Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.TopEnd))
-
-                                    // Bottom-left
-                                    Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.BottomStart))
-                                    Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.BottomStart))
-
-                                    // Bottom-right
-                                    Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.BottomEnd))
-                                    Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.BottomEnd))
-                                }
-
-                                // Animated Laser line
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(3.dp)
-                                        .offset(y = (laserOffset * 220 - 110).dp)
-                                        .background(
-                                            Brush.horizontalGradient(
-                                                listOf(Color.Transparent, Color(0xFF10B981), Color(0xFF34D399), Color(0xFF10B981), Color.Transparent)
-                                            )
+                                if (isSuspendedOrRevoked) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier.padding(16.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Scanner Verrouillé",
+                                            tint = Color(0xFFEF4444),
+                                            modifier = Modifier.size(56.dp)
                                         )
-                                )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            "SCANNER VERROUILLÉ",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 14.sp,
+                                            letterSpacing = 1.5.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            "Compte suspendu ou révoqué",
+                                            color = Color(0xFFFCA5A5),
+                                            fontSize = 11.sp,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                } else {
+                                    // 4 Corner Brackets
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(12.dp)
+                                    ) {
+                                        // Top-left
+                                        Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.TopStart))
+                                        Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.TopStart))
 
-                                Text(
-                                    "ALIGNER LE QR CODE",
-                                    color = Color.White.copy(alpha = 0.5f),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    letterSpacing = 2.sp
-                                )
+                                        // Top-right
+                                        Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.TopEnd))
+                                        Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.TopEnd))
+
+                                        // Bottom-left
+                                        Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.BottomStart))
+                                        Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.BottomStart))
+
+                                        // Bottom-right
+                                        Box(modifier = Modifier.size(28.dp, 4.dp).background(Color(0xFF10B981)).align(Alignment.BottomEnd))
+                                        Box(modifier = Modifier.size(4.dp, 28.dp).background(Color(0xFF10B981)).align(Alignment.BottomEnd))
+                                    }
+
+                                    // Animated Laser line
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(3.dp)
+                                            .offset(y = (laserOffset * 220 - 110).dp)
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(Color.Transparent, Color(0xFF10B981), Color(0xFF34D399), Color(0xFF10B981), Color.Transparent)
+                                                )
+                                            )
+                                    )
+
+                                    Text(
+                                        "ALIGNER LE QR CODE",
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        letterSpacing = 2.sp
+                                    )
+                                }
                             }
 
                             // Simulation & Quick Test Presets
@@ -311,8 +404,8 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    "Simulations de Contrôle Instantané :",
-                                    color = Color.White.copy(alpha = 0.7f),
+                                    if (isSuspendedOrRevoked) "Actions de scan désactivées (Compte Révoqué)" else "Simulations de Contrôle Instantané :",
+                                    color = if (isSuspendedOrRevoked) Color(0xFFEF4444) else Color.White.copy(alpha = 0.7f),
                                     style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier.padding(bottom = 8.dp)
                                 )
@@ -323,6 +416,10 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                 ) {
                                     Button(
                                         onClick = {
+                                            if (isSuspendedOrRevoked) {
+                                                Toast.makeText(context, "Capacité de scan désactivée pour ce compte", Toast.LENGTH_SHORT).show()
+                                                return@Button
+                                            }
                                             val validEmerald = """
                                                 {
                                                   "id": "IDM-98421",
@@ -337,8 +434,12 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                             """.trimIndent()
                                             triggerVerification(validEmerald)
                                         },
+                                        enabled = !isSuspendedOrRevoked,
                                         modifier = Modifier.weight(1f),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF059669),
+                                            disabledContainerColor = Color(0xFF334155).copy(alpha = 0.5f)
+                                        ),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
                                         Text("Émeraude", fontSize = 12.sp)
@@ -346,6 +447,10 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
 
                                     Button(
                                         onClick = {
+                                            if (isSuspendedOrRevoked) {
+                                                Toast.makeText(context, "Capacité de scan désactivée pour ce compte", Toast.LENGTH_SHORT).show()
+                                                return@Button
+                                            }
                                             val validSilver = """
                                                 {
                                                   "id": "IDM-55319",
@@ -360,8 +465,12 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                             """.trimIndent()
                                             triggerVerification(validSilver)
                                         },
+                                        enabled = !isSuspendedOrRevoked,
                                         modifier = Modifier.weight(1f),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF475569)),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFF475569),
+                                            disabledContainerColor = Color(0xFF334155).copy(alpha = 0.5f)
+                                        ),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
                                         Text("Argent", fontSize = 12.sp)
@@ -369,6 +478,10 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
 
                                     Button(
                                         onClick = {
+                                            if (isSuspendedOrRevoked) {
+                                                Toast.makeText(context, "Capacité de scan désactivée pour ce compte", Toast.LENGTH_SHORT).show()
+                                                return@Button
+                                            }
                                             val fakePayload = """
                                                 {
                                                   "id": "IDM-FAKE-000",
@@ -379,8 +492,12 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                             """.trimIndent()
                                             triggerVerification(fakePayload)
                                         },
+                                        enabled = !isSuspendedOrRevoked,
                                         modifier = Modifier.weight(1f),
-                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.error,
+                                            disabledContainerColor = Color(0xFF334155).copy(alpha = 0.5f)
+                                        ),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
                                         Text("Non Conforme", fontSize = 11.sp)
@@ -399,6 +516,29 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                             .padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        if (isSuspendedOrRevoked) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = Color(0xFF7F1D1D).copy(alpha = 0.95f),
+                                border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFCA5A5), modifier = Modifier.size(24.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        "Vérification manuelle désactivée (Compte suspendu ou révoqué).",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
                         Card(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             shape = RoundedCornerShape(16.dp)
@@ -423,6 +563,7 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                             onValueChange = { manualInput = it },
                             label = { Text("Charge utile JSON ou Numéro ID") },
                             placeholder = { Text("Coller le contenu scanné ou ID...") },
+                            enabled = !isSuspendedOrRevoked,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(160.dp),
@@ -450,6 +591,7 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                         Toast.makeText(context, "Données collées depuis le presse-papier", Toast.LENGTH_SHORT).show()
                                     }
                                 },
+                                enabled = !isSuspendedOrRevoked,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -466,6 +608,7 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                         Toast.makeText(context, "Veuillez entrer un code ou identifiant", Toast.LENGTH_SHORT).show()
                                     }
                                 },
+                                enabled = !isSuspendedOrRevoked,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -489,23 +632,31 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                         Surface(
                             modifier = Modifier.size(140.dp),
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                            color = if (isSuspendedOrRevoked) Color(0xFFEF4444).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     Icons.Default.Nfc,
                                     contentDescription = "NFC",
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = if (isSuspendedOrRevoked) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(72.dp)
                                 )
                             }
                         }
 
                         Spacer(modifier = Modifier.height(24.dp))
-                        Text("Approchez la carte ou le téléphone", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isSuspendedOrRevoked) "Lecteur NFC Désactivé" else "Approchez la carte ou le téléphone", 
+                            style = MaterialTheme.typography.titleMedium, 
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSuspendedOrRevoked) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Le lecteur NFC écoute les trames HCE émises par l'application IDMuslim du membre pour authentifier son badge sans contact.",
+                            if (isSuspendedOrRevoked) 
+                                "Le terminal sans contact NFC est bloqué car le statut de ce compte a été révoqué ou suspendu."
+                            else 
+                                "Le lecteur NFC écoute les trames HCE émises par l'application IDMuslim du membre pour authentifier son badge sans contact.",
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -531,6 +682,7 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                 }
                                 triggerVerification(nfcPayload)
                             },
+                            enabled = !isSuspendedOrRevoked,
                             shape = RoundedCornerShape(14.dp)
                         ) {
                             Icon(Icons.Default.Sensors, contentDescription = null)

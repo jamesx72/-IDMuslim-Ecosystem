@@ -350,6 +350,12 @@ fun SettingsScreen(
                 modifier = Modifier.padding(bottom = 24.dp)
             )
 
+            // Automated Secure Local JSON Backup for Personal Records
+            com.example.ui.components.SecureLocalBackupDashboard(
+                viewModel = viewModel,
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
+
             // Room <-> Firestore Sync & Cloud Backup Card
             Card(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),

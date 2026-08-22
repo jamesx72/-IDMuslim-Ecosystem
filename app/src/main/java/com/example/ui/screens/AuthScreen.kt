@@ -43,6 +43,8 @@ import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 import com.example.ui.locales.Translations
+import com.example.utils.HapticHelper
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 import androidx.compose.ui.platform.testTag
 
@@ -124,6 +126,7 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                                     }
                                 }
                                 successMessage = "Connexion Google réussie !"
+                                HapticHelper.performAuthSuccess(context)
                                 onAuthSuccess()
                             } else {
                                 val exMsg = authTask.exception?.localizedMessage ?: "Authentification avec Firebase échouée."
@@ -134,9 +137,11 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                                     ApiClient.getSessionManager().saveProfileFullName(fullName)
                                     ApiClient.getSessionManager().saveAuthToken("google_demo_token_$emailAddress")
                                     successMessage = "Connexion Google réussie (Mode démo simulé) !"
+                                    HapticHelper.performAuthSuccess(context)
                                     onAuthSuccess()
                                 } else {
                                     errorMessage = exMsg
+                                    HapticHelper.performAuthError(context)
                                 }
                             }
                         }
@@ -148,6 +153,7 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                     ApiClient.getSessionManager().saveProfileFullName(fullName)
                     ApiClient.getSessionManager().saveAuthToken("google_demo_token_$emailAddress")
                     successMessage = "Connexion Google réussie (Mode démo simulé) !"
+                    HapticHelper.performAuthSuccess(context)
                     onAuthSuccess()
                 }
             } catch (e: Exception) {
@@ -160,6 +166,7 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                 ApiClient.getSessionManager().saveUserEmail(fallbackEmail)
                 ApiClient.getSessionManager().saveAuthToken("google_demo_token_simulated")
                 successMessage = "Connexion Google simulée (Développement local) !"
+                HapticHelper.performAuthSuccess(context)
                 onAuthSuccess()
             }
         } else {
@@ -172,6 +179,7 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
             ApiClient.getSessionManager().saveUserEmail(fallbackEmail)
             ApiClient.getSessionManager().saveAuthToken("google_demo_token_simulated")
             successMessage = "Connexion Google (Simulation alternative) réussie !"
+            HapticHelper.performAuthSuccess(context)
             onAuthSuccess()
         }
     }
@@ -559,9 +567,11 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                                                         }
                                                         ApiClient.getSessionManager().saveUserEmail(email)
                                                         successMessage = "Connexion réussie!"
+                                                        HapticHelper.performAuthSuccess(context)
                                                         onAuthSuccess()
                                                     } else {
                                                         errorMessage = "Veuillez vérifier votre email (cliquez sur le lien envoyé) avant de vous connecter."
+                                                        HapticHelper.performAuthError(context)
                                                         auth.signOut()
                                                     }
                                                 } else {
@@ -578,12 +588,15 @@ fun AuthScreen(language: String = "fr", onAuthSuccess: () -> Unit) {
                                                             session.saveProfileFullName(savedName)
                                                             session.saveAuthToken("demo_token_$email")
                                                             successMessage = "Connexion réussie (Mode démo hors-ligne)!"
+                                                            HapticHelper.performAuthSuccess(context)
                                                             onAuthSuccess()
                                                         } else {
                                                             errorMessage = "Identifiants incorrects ou non enregistrés localement."
+                                                            HapticHelper.performAuthError(context)
                                                         }
                                                     } else {
                                                         errorMessage = exceptionMessage
+                                                        HapticHelper.performAuthError(context)
                                                     }
                                                 }
                                             }

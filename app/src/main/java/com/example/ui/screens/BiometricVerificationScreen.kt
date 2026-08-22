@@ -136,10 +136,12 @@ fun BiometricVerificationScreen(
                         object : ImageCapture.OnImageSavedCallback {
                             override fun onError(exc: ImageCaptureException) {
                                 Log.e("Camera", "Photo capture failed: ${exc.message}", exc)
+                                com.example.utils.HapticHelper.performAuthError(context)
                             }
 
                             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                                 val savedUri = Uri.fromFile(photoFile)
+                                com.example.utils.HapticHelper.performAuthSuccess(context)
                                 onVerificationComplete(savedUri)
                             }
                         }

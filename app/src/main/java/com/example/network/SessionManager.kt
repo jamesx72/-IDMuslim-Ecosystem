@@ -33,6 +33,7 @@ class SessionManager(context: Context) {
         private const val KEY_SCREEN_SECURITY = "screen_security_enabled"
         private const val KEY_AUTO_LOCK_TIMEOUT = "auto_lock_timeout"
         private const val KEY_SECURITY_AUDIT_LOGS = "security_audit_logs"
+        private const val KEY_ACCOUNT_SUSPENDED = "account_suspended"
     }
 
     fun saveAuthToken(token: String) {
@@ -448,5 +449,45 @@ class SessionManager(context: Context) {
     fun getSecurityAuditLogs(): List<String> {
         val set = prefs.getStringSet(KEY_SECURITY_AUDIT_LOGS, emptySet()) ?: emptySet()
         return set.toList().sortedDescending()
+    }
+
+    fun saveAccountSuspended(suspended: Boolean) {
+        prefs.edit().putBoolean(KEY_ACCOUNT_SUSPENDED, suspended).apply()
+    }
+
+    fun isAccountSuspended(): Boolean {
+        return prefs.getBoolean(KEY_ACCOUNT_SUSPENDED, false)
+    }
+
+    fun saveLastLocalBackupTime(timestamp: Long) {
+        prefs.edit().putLong("KEY_LAST_LOCAL_BACKUP_TIME", timestamp).apply()
+    }
+
+    fun getLastLocalBackupTime(): Long {
+        return prefs.getLong("KEY_LAST_LOCAL_BACKUP_TIME", 0L)
+    }
+
+    fun saveAutoLocalBackupEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("KEY_AUTO_LOCAL_BACKUP_ENABLED", enabled).apply()
+    }
+
+    fun isAutoLocalBackupEnabled(): Boolean {
+        return prefs.getBoolean("KEY_AUTO_LOCAL_BACKUP_ENABLED", true)
+    }
+
+    fun saveLastLocalBackupPath(path: String) {
+        prefs.edit().putString("KEY_LAST_LOCAL_BACKUP_PATH", path).apply()
+    }
+
+    fun getLastLocalBackupPath(): String? {
+        return prefs.getString("KEY_LAST_LOCAL_BACKUP_PATH", null)
+    }
+
+    fun saveLastLocalBackupSize(size: Long) {
+        prefs.edit().putLong("KEY_LAST_LOCAL_BACKUP_SIZE", size).apply()
+    }
+
+    fun getLastLocalBackupSize(): Long {
+        return prefs.getLong("KEY_LAST_LOCAL_BACKUP_SIZE", 0L)
     }
 }

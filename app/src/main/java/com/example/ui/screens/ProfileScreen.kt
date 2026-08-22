@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.utils.HapticHelper
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.graphics.asImageBitmap
@@ -264,9 +266,18 @@ fun ProfileScreen(
     val shareLinkPhoto by viewModel.shareLinkPhoto.collectAsState()
 
     val lastBackgroundSyncTime by viewModel.lastBackgroundSyncTime.collectAsState()
+    val isAccountSuspended by viewModel.isAccountSuspended.collectAsState()
+    val isOnline by viewModel.isOnline.collectAsState()
     val isBackgroundSyncEnabled by viewModel.isBackgroundSyncEnabled.collectAsState()
     val isRealtimeSyncActive by viewModel.isRealtimeSyncActive.collectAsState()
     val syncStatusMessage by viewModel.syncStatusMessage.collectAsState()
+
+    val combinedLogs = remember(userActivityLogs, activityLogs) {
+        val remote = userActivityLogs.map { 
+            com.example.data.ActivityLogEntity(id = 0, timestamp = it.timestamp, actionType = it.actionType, description = it.description, location = it.location)
+        }
+        (remote + activityLogs).distinctBy { "${it.timestamp}_${it.actionType}" }.sortedByDescending { it.timestamp }
+    }
 
     var showVerificationDialog by remember { mutableStateOf(false) }
     var showThemeMenu by remember { mutableStateOf(false) }
@@ -292,6 +303,7 @@ fun ProfileScreen(
     var isAuthenticated by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
     var showPaymentDialog by remember { mutableStateOf(false) }
+    var showSecurePdfDialog by remember { mutableStateOf(false) }
     var showIdReadyAlert by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
     var showFaqDialog by remember { mutableStateOf(false) }
@@ -343,6 +355,7 @@ fun ProfileScreen(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val haptic = LocalHapticFeedback.current
     
     LaunchedEffect(Unit) {
         viewModel.loadProfileFromFirestore()
@@ -350,6 +363,7 @@ fun ProfileScreen(
         viewModel.loadFamilyMembers()
         isAuthenticated = com.example.utils.BiometricHelper.authenticate(context)
         if (isAuthenticated) {
+            HapticHelper.performAuthSuccess(context, haptic)
             viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
         }
     }
@@ -656,7 +670,10 @@ fun ProfileScreen(
                                 .background(
                                     if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
                                 )
-                                .clickable { selectedTab = index }
+                                .clickable { 
+                                    HapticHelper.performClick(context, haptic)
+                                    selectedTab = index 
+                                }
                                 .padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -707,8 +724,144 @@ fun ProfileScreen(
                                 expiryDate = expiryDate,
                                 language = language,
                                 privacyMode = privacyMode,
-                                onPhotoClick = { showPhotoMenu = true }
+                                lastSyncTime = lastBackgroundSyncTime,
+                                isSuspended = isAccountSuspended,
+                                onPhotoClick = { showPhotoMenu = true },
+                                onDownloadPdfClick = { showSecurePdfDialog = true }
                             )
+
+                            if (isAccountSuspended || verificationStatus.equals("SUSPENDED", ignoreCase = true) || verificationStatus.equals("REVOKED", ignoreCase = true)) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = Color(0xFFFEF2F2)
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.8f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = "Compte Révoqué",
+                                            tint = Color(0xFFDC2626),
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "COMPTE SUSPENDU / RÉVOQUÉ",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF991B1B)
+                                            )
+                                            Text(
+                                                text = "La validité de cette carte d'identité numérique a été suspendue par un administrateur. Contactez le support pour régulariser votre situation.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFFB91C1C)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Offline Mode Indicator & Last Synced Timestamp
+                            val formattedSyncTime = remember(lastBackgroundSyncTime) {
+                                if (lastBackgroundSyncTime > 0) {
+                                    java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastBackgroundSyncTime))
+                                } else {
+                                    "Jamais"
+                                }
+                            }
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (!isOnline) {
+                                        Color(0xFFFEF3C7) // Warm Amber tint
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                    }
+                                ),
+                                border = if (!isOnline) {
+                                    androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
+                                } else {
+                                    androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .background(
+                                                    color = if (!isOnline) Color(0xFFF59E0B) else Color(0xFF10B981),
+                                                    shape = CircleShape
+                                                )
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = if (!isOnline) {
+                                                    "Mode Hors-Ligne • ID Valide Localement"
+                                                } else {
+                                                    "Synchronisé au Cloud Sécurisé"
+                                                },
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (!isOnline) Color(0xFF92400E) else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "Dernière synchro : $formattedSyncTime",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (!isOnline) Color(0xFFB45309) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    if (isOnline) {
+                                        IconButton(
+                                            onClick = { 
+                                                HapticHelper.performClick(context, haptic)
+                                                viewModel.forceCloudSync() 
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Synchroniser maintenant",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Security,
+                                            contentDescription = "Chiffrement local actif",
+                                            tint = Color(0xFFD97706),
+                                            modifier = Modifier.size(20.dp).padding(end = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
                         
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
@@ -782,23 +935,10 @@ fun ProfileScreen(
                         
                         DashboardActionCard(
                             icon = Icons.Default.PictureAsPdf,
-                            title = "Télécharger PDF (Premium)",
-                            subtitle = "Générez un certificat certifié au format PDF",
+                            title = "Générer PDF Sécurisé & Imprimable",
+                            subtitle = "Format carte portefeuille découpable ou certificat A4 protégé par mot de passe",
                             onClick = {
-                                if (hasPaidForPdf) {
-                                    com.example.utils.PdfGenerator.generatePdf(
-                                        context = context,
-                                        fullName = profileFullName,
-                                        dateOfBirth = profileDateOfBirth,
-                                        residency = profileResidency,
-                                        community = profileCommunityAffiliation,
-                                        passport = profilePassport,
-                                        license = profileLicense,
-                                        memberId = memberId
-                                    )
-                                } else {
-                                    showPaymentDialog = true
-                                }
+                                showSecurePdfDialog = true
                             },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
                         )
@@ -811,10 +951,12 @@ fun ProfileScreen(
                                 .fillMaxWidth()
                                 .padding(20.dp)
                                 .clickable {
+                                    HapticHelper.performClick(context, haptic)
                                     coroutineScope.launch {
                                         val authResult = com.example.utils.BiometricHelper.authenticate(context)
                                         isAuthenticated = authResult
                                         if (authResult) {
+                                            HapticHelper.performCardUnlocked(context, haptic)
                                             viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")
                                         }
                                     }
@@ -886,15 +1028,27 @@ fun ProfileScreen(
                             ) {
                                 DropdownMenuItem(
                                     text = { Text(Translations.get(language, "theme_emerald")) },
-                                    onClick = { viewModel.updateCardTheme(0); showThemeMenu = false }
+                                    onClick = { 
+                                        HapticHelper.performClick(context, haptic)
+                                        viewModel.updateCardTheme(0)
+                                        showThemeMenu = false 
+                                    }
                                 )
                                 DropdownMenuItem(
                                     text = { Text(Translations.get(language, "theme_ocean")) },
-                                    onClick = { viewModel.updateCardTheme(1); showThemeMenu = false }
+                                    onClick = { 
+                                        HapticHelper.performClick(context, haptic)
+                                        viewModel.updateCardTheme(1)
+                                        showThemeMenu = false 
+                                    }
                                 )
                                 DropdownMenuItem(
                                     text = { Text(Translations.get(language, "theme_ruby")) },
-                                    onClick = { viewModel.updateCardTheme(2); showThemeMenu = false }
+                                    onClick = { 
+                                        HapticHelper.performClick(context, haptic)
+                                        viewModel.updateCardTheme(2)
+                                        showThemeMenu = false 
+                                    }
                                 )
                             }
                         }
@@ -1193,13 +1347,6 @@ fun ProfileScreen(
                 }
             } else if (selectedTab == 4) {
                 if (isAuthenticated) {
-                    val combinedLogs = remember(userActivityLogs, activityLogs) {
-                        val remote = userActivityLogs.map { 
-                            com.example.data.ActivityLogEntity(id = 0, timestamp = it.timestamp, actionType = it.actionType, description = it.description, location = it.location)
-                        }
-                        (remote + activityLogs).distinctBy { "${it.timestamp}_${it.actionType}" }.sortedByDescending { it.timestamp }
-                    }
-
                     item {
                         Text(
                             text = Translations.get(language, "tab_activity"),
@@ -1384,6 +1531,23 @@ fun ProfileScreen(
             onViewId = {
                 selectedTab = 0
             }
+        )
+    }
+
+    if (showSecurePdfDialog) {
+        com.example.ui.components.SecurePdfExportDialog(
+            fullName = profileFullName,
+            dateOfBirth = profileDateOfBirth,
+            residency = profileResidency,
+            community = profileCommunityAffiliation,
+            passport = profilePassport,
+            license = profileLicense,
+            memberId = memberId,
+            verificationStatus = verificationStatus,
+            expiryDate = expiryDate,
+            photoBase64 = profilePhoto,
+            viewModel = viewModel,
+            onDismiss = { showSecurePdfDialog = false }
         )
     }
 
