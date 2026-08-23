@@ -298,20 +298,32 @@ fun DocumentScannerScreen(
                 )
             }
         ) { innerPadding ->
+            DisposableEffect(lifecycleOwner) {
+                onDispose {
+                    try {
+                        val cameraProvider = cameraProviderFuture.get()
+                        cameraProvider.unbindAll()
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                }
+            }
             if (hasPermission) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     AndroidView(
                         factory = { ctx ->
-                            val previewView = PreviewView(ctx)
+                            val previewView = PreviewView(ctx).apply {
+                                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                            }
                             val executor: Executor = ContextCompat.getMainExecutor(ctx)
                             cameraProviderFuture.addListener({
-                                val cameraProvider = cameraProviderFuture.get()
-                                val preview = Preview.Builder().build().also {
-                                    it.setSurfaceProvider(previewView.surfaceProvider)
-                                }
-                                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
                                 try {
+                                    val cameraProvider = cameraProviderFuture.get()
+                                    val preview = Preview.Builder().build().also {
+                                        it.setSurfaceProvider(previewView.surfaceProvider)
+                                    }
+                                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
                                     cameraProvider.unbindAll()
                                     cameraProvider.bindToLifecycle(
                                         lifecycleOwner,
@@ -324,6 +336,14 @@ fun DocumentScannerScreen(
                                 }
                             }, executor)
                             previewView
+                        },
+                        onRelease = {
+                            try {
+                                val cameraProvider = cameraProviderFuture.get()
+                                cameraProvider.unbindAll()
+                            } catch (e: Exception) {
+                                // ignore
+                            }
                         },
                         modifier = Modifier.fillMaxSize()
                     )

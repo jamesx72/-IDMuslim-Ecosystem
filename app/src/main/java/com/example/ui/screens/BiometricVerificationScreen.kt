@@ -50,8 +50,14 @@ fun BiometricVerificationScreen(
         permissionLauncher.launch(android.Manifest.permission.CAMERA)
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(lifecycleOwner) {
         onDispose {
+            try {
+                val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+                cameraProvider.unbindAll()
+            } catch (e: Exception) {
+                // ignore
+            }
             cameraExecutor.shutdown()
         }
     }
@@ -60,21 +66,23 @@ fun BiometricVerificationScreen(
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
             AndroidView(
                 factory = { ctx ->
-                    val previewView = PreviewView(ctx)
+                    val previewView = PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                    }
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                     cameraProviderFuture.addListener({
-                        val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-
-                        val preview = Preview.Builder().build().also {
-                            it.setSurfaceProvider(previewView.surfaceProvider)
-                        }
-
-                        imageCapture = ImageCapture.Builder().build()
-
-                        val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
                         try {
+                            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+                            val preview = Preview.Builder().build().also {
+                                it.setSurfaceProvider(previewView.surfaceProvider)
+                            }
+
+                            imageCapture = ImageCapture.Builder().build()
+
+                            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+
                             cameraProvider.unbindAll()
                             cameraProvider.bindToLifecycle(
                                 lifecycleOwner, cameraSelector, preview, imageCapture
@@ -85,6 +93,14 @@ fun BiometricVerificationScreen(
 
                     }, ContextCompat.getMainExecutor(ctx))
                     previewView
+                },
+                onRelease = {
+                    try {
+                        val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+                        cameraProvider.unbindAll()
+                    } catch (e: Exception) {
+                        // ignore
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )

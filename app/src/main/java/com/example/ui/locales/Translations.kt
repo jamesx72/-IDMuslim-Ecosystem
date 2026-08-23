@@ -1,8 +1,8 @@
 package com.example.ui.locales
 
 object Translations {
-    fun get(lang: String, key: String): String {
-        val strings = mapOf(
+    private val strings = mapOf(
+
             "fr" to mapOf(
                 "identity_card" to "CARTE D'IDENTITÉ",
                 "date_of_birth" to "DATE DE NAISSANCE",
@@ -18,6 +18,12 @@ object Translations {
                 "community_affiliation" to "Mosquée / Association",
                 "save" to "Sauvegarder",
                 "edit" to "Modifier",
+                "scanner_tab_camera" to "Scanner Caméra",
+                "scanner_tab_manual" to "Saisie Manuelle",
+                "scanner_tab_nfc" to "Lecteur NFC",
+                "scanner_tab_history" to "Historique",
+                "verification_terminal" to "Terminal de Vérification",
+                "idmuslim_shield" to "IDMuslim Shield • Contrôle de Validité",
                 "privacy_msg" to "Vos données sont protégées par un chiffrement sécurisé et ne sont partagées avec personne.",
                 "take_photo" to "Photo",
                 "signature" to "SIGNATURE",
@@ -207,6 +213,12 @@ object Translations {
                 "community_affiliation" to "Mosque / Association",
                 "save" to "Save",
                 "edit" to "Edit",
+                "scanner_tab_camera" to "Camera Scanner",
+                "scanner_tab_manual" to "Manual Entry",
+                "scanner_tab_nfc" to "NFC Reader",
+                "scanner_tab_history" to "History",
+                "verification_terminal" to "Verification Terminal",
+                "idmuslim_shield" to "IDMuslim Shield • Validity Check",
                 "privacy_msg" to "Your data is protected by secure encryption and is not shared with anyone.",
                 "take_photo" to "Photo",
                 "signature" to "SIGNATURE",
@@ -396,6 +408,12 @@ object Translations {
                 "community_affiliation" to "المسجد / الجمعية",
                 "save" to "حفظ",
                 "edit" to "تعديل",
+                "scanner_tab_camera" to "مسح بالكاميرا",
+                "scanner_tab_manual" to "إدخال يدوي",
+                "scanner_tab_nfc" to "قارئ NFC",
+                "scanner_tab_history" to "السجل",
+                "verification_terminal" to "محطة التحقق",
+                "idmuslim_shield" to "IDMuslim Shield • التحقق من الصلاحية",
                 "privacy_msg" to "بياناتك محمية بتشفير آمن ولا تتم مشاركتها مع أي شخص.",
                 "take_photo" to "صورة",
                 "signature" to "التوقيع",
@@ -581,6 +599,12 @@ object Translations {
                 "community_affiliation" to "Mosque / Association",
                 "save" to "Save",
                 "edit" to "Edit",
+                "scanner_tab_camera" to "Camera Scanner",
+                "scanner_tab_manual" to "Manual Entry",
+                "scanner_tab_nfc" to "NFC Reader",
+                "scanner_tab_history" to "History",
+                "verification_terminal" to "Verification Terminal",
+                "idmuslim_shield" to "IDMuslim Shield • Validity Check",
                 "privacy_msg" to "Your data is protected by secure encryption and is not shared with anyone.",
                 "take_photo" to "Photo",
                 "signature" to "SIGNATURE",
@@ -770,6 +794,12 @@ object Translations {
                 "community_affiliation" to "Mosque / Association",
                 "save" to "Save",
                 "edit" to "Edit",
+                "scanner_tab_camera" to "Camera Scanner",
+                "scanner_tab_manual" to "Manual Entry",
+                "scanner_tab_nfc" to "NFC Reader",
+                "scanner_tab_history" to "History",
+                "verification_terminal" to "Verification Terminal",
+                "idmuslim_shield" to "IDMuslim Shield • Validity Check",
                 "privacy_msg" to "Your data is protected by secure encryption and is not shared with anyone.",
                 "take_photo" to "Photo",
                 "signature" to "SIGNATURE",
@@ -945,6 +975,7 @@ object Translations {
                 "validate" to "Validate"
             )
         )
+    fun get(lang: String, key: String): String {
         return strings[lang]?.get(key) ?: strings["en"]?.get(key) ?: key
     }
 }

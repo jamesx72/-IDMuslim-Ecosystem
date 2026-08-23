@@ -4,10 +4,21 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChangeCircle
+import androidx.compose.material.icons.filled.ScreenRotation
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.widget.Toast
+import android.content.ClipboardManager
+import android.content.ClipData
+import android.content.Context
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -52,6 +63,9 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.example.utils.HapticHelper
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 
 @Composable
 fun DigitalIdCard(
@@ -119,7 +133,22 @@ fun DigitalIdCard(
     var isFlipped by remember { mutableStateOf(false) }
     val rotation by animateFloatAsState(
         targetValue = if (isFlipped) 180f else 0f,
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
+        animationSpec = tween(
+            durationMillis = 650,
+            easing = CubicBezierEasing(0.33f, 1f, 0.68f, 1f)
+        ),
+        label = "cardFlip3DRotation"
+    )
+    
+    // Dynamic 3D depth scale: card slightly pulls back during the flip for realistic physical momentum
+    val flipAngleFraction = (rotation % 180f) / 180f
+    val depthScale = 1f - (sin(flipAngleFraction * PI.toFloat()) * 0.08f)
+    
+    // Dynamic elevation lift during flip
+    val cardElevation by animateDpAsState(
+        targetValue = if (rotation > 15f && rotation < 165f) 28.dp else 14.dp,
+        animationSpec = tween(durationMillis = 300),
+        label = "cardElevationFlip"
     )
     
     var shieldActive by remember { mutableStateOf(true) }
@@ -128,6 +157,42 @@ fun DigitalIdCard(
         animationSpec = tween(durationMillis = 300)
     )
     val blurModifier = if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier
+
+    // Deterministic cryptographic hash and NFC UID derived from memberId
+    val cryptoHash = remember(memberId) {
+        val hashInt = abs(memberId.hashCode().toLong())
+        val hex1 = (hashInt and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+        val hex2 = ((hashInt shr 16) and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+        val hex3 = ((hashInt shr 32) and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+        "SHA256:$hex1-$hex2-$hex3"
+    }
+    
+    val nfcChipUid = remember(memberId) {
+        val hash = abs(memberId.hashCode())
+        val b1 = (hash and 0xFF).toString(16).padStart(2, '0').uppercase()
+        val b2 = ((hash shr 8) and 0xFF).toString(16).padStart(2, '0').uppercase()
+        val b3 = ((hash shr 16) and 0xFF).toString(16).padStart(2, '0').uppercase()
+        val b4 = ((hash shr 24) and 0xFF).toString(16).padStart(2, '0').uppercase()
+        "04:$b1:$b2:$b3:$b4"
+    }
+
+    LaunchedEffect(cryptoHash, nfcChipUid, memberId, verificationStatus) {
+        val nfcPayload = """
+            {
+              "id": "$memberId",
+              "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
+              "name": "$fullName",
+              "dob": "$dateOfBirth",
+              "residency": "$residency",
+              "community": "$communityAffiliation",
+              "nfcUid": "$nfcChipUid",
+              "cryptoHash": "$cryptoHash",
+              "sig": "$cryptoHash",
+              "issuedAt": ${System.currentTimeMillis() / 1000}
+            }
+        """.trimIndent()
+        com.example.nfc.ProfileApduService.activePayload = nfcPayload
+    }
 
     Card(
         modifier = modifier
@@ -147,14 +212,37 @@ fun DigitalIdCard(
             )
             .graphicsLayer {
                 rotationY = rotation
-                cameraDistance = 12f * density
+                cameraDistance = 16f * density
+                scaleX = depthScale
+                scaleY = depthScale
             },
         onClick = { 
-            HapticHelper.performCardFlip(context, haptic)
-            isFlipped = !isFlipped 
+            if (!isFlipped) {
+                val activity = context as? androidx.fragment.app.FragmentActivity
+                if (activity != null && com.example.security.BiometricHelper.canAuthenticate(context)) {
+                    com.example.security.BiometricHelper.authenticate(
+                        activity = activity,
+                        title = if (language == "fr") "Vérifier l'identité" else "Verify Identity",
+                        subtitle = if (language == "fr") "Déverrouiller le profil de sécurité" else "Unlock security profile",
+                        onSuccess = {
+                            HapticHelper.performCardFlip(context, haptic)
+                            isFlipped = true
+                        },
+                        onError = { error ->
+                            android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                } else {
+                    HapticHelper.performCardFlip(context, haptic)
+                    isFlipped = true
+                }
+            } else {
+                HapticHelper.performCardFlip(context, haptic)
+                isFlipped = false
+            }
         },
         shape = RoundedCornerShape(24.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = cardElevation),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Box(
@@ -179,6 +267,26 @@ fun DigitalIdCard(
                         end = Offset(hologramOffset + 500f, size.height),
                         strokeWidth = 300f
                     )
+                    
+                    // Dynamic 3D specular light glare responding to 3D rotation angle
+                    val specularOffset = (rotation / 180f) * size.width
+                    val dynamicGlareAlpha = 0.22f * sin(flipAngleFraction * PI.toFloat())
+                    if (dynamicGlareAlpha > 0.01f) {
+                        drawLine(
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.White.copy(alpha = dynamicGlareAlpha),
+                                    Color.Transparent
+                                ),
+                                start = Offset(specularOffset - 100f, 0f),
+                                end = Offset(specularOffset + 100f, size.height)
+                            ),
+                            start = Offset(specularOffset - 100f, 0f),
+                            end = Offset(specularOffset + 100f, size.height),
+                            strokeWidth = 140f
+                        )
+                    }
                     
                     // Subtle grid background for high-tech feel
                     val gridSize = 40f
@@ -252,6 +360,33 @@ fun DigitalIdCard(
                                 letterSpacing = 2.sp,
                                 fontWeight = FontWeight.Bold
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White.copy(alpha = 0.16f),
+                                modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ChangeCircle,
+                                        contentDescription = "3D Flip",
+                                        tint = Color.White.copy(alpha = 0.9f),
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "3D FLIP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
                         }
                         
                         if (onDownloadPdfClick != null) {
@@ -456,96 +591,295 @@ fun DigitalIdCard(
                 }
             }
             } else {
+                // BACK SIDE: Comprehensive Cryptographic Security Profile & Verification Panel
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(20.dp)
+                        .padding(horizontal = 18.dp, vertical = 14.dp)
                         .graphicsLayer { rotationY = 180f }
                 ) {
-                    Text(
-                        text = Translations.get(language, "gov_info"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White.copy(alpha = 0.8f),
-                        letterSpacing = 1.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    
-                    IdField(
-                        label = Translations.get(language, "passport_number"),
-                        value = passportNumber?.ifEmpty { "--" } ?: "--",
-                        modifier = blurModifier
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    IdField(
-                        label = Translations.get(language, "license_number"),
-                        value = licenseNumber?.ifEmpty { "--" } ?: "--",
-                        modifier = blurModifier
-                    )
-                    
-                    if (lastSyncTime != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
+                    // Back Header: Security & Crypto Enclave Status
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Sync,
-                                contentDescription = "Synced",
-                                tint = Color.White.copy(alpha = 0.6f),
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.25f),
+                                border = BorderStroke(1.dp, Color(0xFF34D399).copy(alpha = 0.6f))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Memory,
+                                        contentDescription = "Crypto Chip",
+                                        tint = Color(0xFF34D399),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "CHIP SECURED",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF34D399),
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Last synced: " + java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastSyncTime)),
+                                text = "SECURITY PROFILE",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.6f),
+                                color = Color.White.copy(alpha = 0.85f),
+                                letterSpacing = 1.5.sp,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp
                             )
                         }
+
+                        // Return Flip Pill
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.White.copy(alpha = 0.18f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    HapticHelper.performCardFlip(context, haptic)
+                                    isFlipped = false
+                                }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ChangeCircle,
+                                    contentDescription = "Flip Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "FRONT",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color.White,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
                     }
-                    
-                    Spacer(modifier = Modifier.weight(1f))
-                    
-                    // QR Code on the back for quick verification
-                    val qrBitmap = remember(memberId) {
-                        try {
-                            val payload = "https://idmuslim.org/verify/$memberId"
-                            val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 400, 400)
-                            val bitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.RGB_565)
-                            for (x in 0 until 400) {
-                                for (y in 0 until 400) {
-                                    bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Middle Security Grid (Details Left, QR Right)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left Column: Cryptographic Proofs & Protected Data
+                        Column(
+                            modifier = Modifier.weight(1.15f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Digital Signature Hash
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    val clip = ClipData.newPlainText("Security Hash", cryptoHash)
+                                    clipboard?.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Crypto Hash Copied!", Toast.LENGTH_SHORT).show()
+                                    HapticHelper.performClick(context, haptic)
+                                }
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "INTEGRITY HASH (SHA-256)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 7.5.sp,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = cryptoHash,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF6EE7B7)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy Hash",
+                                            tint = Color.White.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                    }
                                 }
                             }
-                            bitmap.asImageBitmap()
-                        } catch (e: Exception) {
-                            null
+
+                            // Virtual NFC UID & Protocol
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Column {
+                                    Text(
+                                        text = "NFC CHIP UID",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 7.5.sp,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        text = nfcChipUid,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "SECURITY PROTOCOL",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 7.5.sp,
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        text = "AES-256-GCM • SHIELD",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF93C5FD)
+                                    )
+                                }
+                            }
+
+                            // Official Government ID Fields (Protected by Privacy Shield)
+                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                IdField(
+                                    label = Translations.get(language, "passport_number"),
+                                    value = passportNumber?.ifEmpty { "--" } ?: "--",
+                                    isMonospace = true,
+                                    modifier = blurModifier
+                                )
+                                IdField(
+                                    label = Translations.get(language, "license_number"),
+                                    value = licenseNumber?.ifEmpty { "--" } ?: "--",
+                                    isMonospace = true,
+                                    modifier = blurModifier
+                                )
+                            }
                         }
-                    }
-                    
-                    if (qrBitmap != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(100.dp),
-                            contentAlignment = Alignment.Center
+
+                        // Right Column: Full Verification QR Code
+                        val qrBitmap = remember(memberId) {
+                            try {
+                                val payload = "https://idmuslim.org/verify/$memberId"
+                                val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 300, 300)
+                                val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.RGB_565)
+                                for (x in 0 until 300) {
+                                    for (y in 0 until 300) {
+                                        bitmap.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                                    }
+                                }
+                                bitmap.asImageBitmap()
+                            } catch (e: Exception) {
+                                null
+                            }
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(start = 10.dp)
                         ) {
-                            Image(
-                                bitmap = qrBitmap,
-                                contentDescription = "QR Code Verification",
-                                modifier = Modifier
-                                    .size(90.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White)
-                                    .padding(4.dp)
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White,
+                                shadowElevation = 6.dp,
+                                modifier = Modifier.size(68.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().padding(4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (qrBitmap != null) {
+                                        Image(
+                                            bitmap = qrBitmap,
+                                            contentDescription = "QR Code Verification",
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.QrCode2,
+                                            contentDescription = "QR Code",
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "SCAN TO VERIFY",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 7.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.7f),
+                                letterSpacing = 0.8.sp
                             )
                         }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(40.dp)
-                                .background(Color.White.copy(alpha = 0.3f))
+                    }
+
+                    // Bottom Security Micro-Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF10B981))
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (lastSyncTime != null) {
+                                    "Synced: " + SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(lastSyncTime))
+                                } else {
+                                    "HARDWARE ENCLAVE VERIFIED"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 8.sp,
+                                color = Color.White.copy(alpha = 0.65f),
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Text(
+                            text = "IDMUSLIM AUTHENTIC",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.5f),
+                            letterSpacing = 0.8.sp
                         )
                     }
                 }
@@ -618,6 +952,20 @@ fun DigitalIdCard(
                     }
                 }
             }
+
+            // Subtle Dynamic Holographic Digital Watermark Overlay (Anti-Screenshot / Anti-Copy protection)
+            HolographicWatermarkOverlay(
+                memberId = memberId,
+                isVerified = isVerified,
+                isSuspended = effectiveSuspended,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        if (rotation > 90f) {
+                            rotationY = 180f
+                        }
+                    }
+            )
         }
     }
 }

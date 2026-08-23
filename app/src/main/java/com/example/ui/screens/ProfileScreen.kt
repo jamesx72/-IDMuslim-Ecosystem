@@ -1721,6 +1721,11 @@ fun DigitalCardSection(
                     }
                 }
             }
+            com.example.ui.components.HolographicWatermarkOverlay(
+                memberId = memberId,
+                isVerified = isVerified,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
@@ -1767,6 +1772,18 @@ fun ProfileQrSection(
             "sig-failed-pki"
         }
         
+        val hashInt = java.lang.Math.abs(memberId.hashCode().toLong())
+        val hex1 = (hashInt and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+        val hex2 = ((hashInt shr 16) and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+        val hex3 = ((hashInt shr 32) and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+        val cHash = "SHA256:$hex1-$hex2-$hex3"
+        val hash = java.lang.Math.abs(memberId.hashCode())
+        val b1 = (hash and 0xFF).toString(16).padStart(2, '0').uppercase()
+        val b2 = ((hash shr 8) and 0xFF).toString(16).padStart(2, '0').uppercase()
+        val b3 = ((hash shr 16) and 0xFF).toString(16).padStart(2, '0').uppercase()
+        val b4 = ((hash shr 24) and 0xFF).toString(16).padStart(2, '0').uppercase()
+        val nUid = "04:$b1:$b2:$b3:$b4"
+
         securePayload = """
             {
               "id": "$memberId",
@@ -1778,7 +1795,9 @@ fun ProfileQrSection(
               "photoAttached": $shareLinkPhoto,
               "issuedAt": $timestamp,
               "sig": "$currentSignature",
-              "algorithm": "SHA-256"
+              "algorithm": "SHA-256",
+              "nfcUid": "$nUid",
+              "cryptoHash": "$cHash"
             }
         """.trimIndent()
         
@@ -1810,6 +1829,18 @@ fun ProfileQrSection(
             } catch (e: Exception) {
                 "sig-failed-pki"
             }
+            val hashInt = java.lang.Math.abs(memberId.hashCode().toLong())
+            val hex1 = (hashInt and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+            val hex2 = ((hashInt shr 16) and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+            val hex3 = ((hashInt shr 32) and 0xFFFF).toString(16).padStart(4, '0').uppercase()
+            val cHash = "SHA256:$hex1-$hex2-$hex3"
+            val hash = java.lang.Math.abs(memberId.hashCode())
+            val b1 = (hash and 0xFF).toString(16).padStart(2, '0').uppercase()
+            val b2 = ((hash shr 8) and 0xFF).toString(16).padStart(2, '0').uppercase()
+            val b3 = ((hash shr 16) and 0xFF).toString(16).padStart(2, '0').uppercase()
+            val b4 = ((hash shr 24) and 0xFF).toString(16).padStart(2, '0').uppercase()
+            val nUid = "04:$b1:$b2:$b3:$b4"
+
             securePayload = """
                 {
                   "id": "$memberId",
@@ -1819,7 +1850,9 @@ fun ProfileQrSection(
                   "residency": "$residency",
                   "community": "$communityAffiliation",
                   "sig": "$currentSignature",
-                  "mode": "static"
+                  "mode": "static",
+                  "nfcUid": "$nUid",
+                  "cryptoHash": "$cHash"
                 }
             """.trimIndent()
             qrBitmapState = QRCodeGenerator.generateQRCode(securePayload, 512)

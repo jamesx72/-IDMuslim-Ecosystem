@@ -663,7 +663,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .collection("private_profile").document("identity")
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                val privateIdentity = snapshot.toObject(com.example.data.PrivateIdentity::class.java)
+                val privateIdentity = snapshot.toObject(com.example.data.PrivateIdentity::class.java)?.decrypted(cryptoManager)
                 privateIdentity?.let {
                     if (it.dob.isNotEmpty() && it.dob != _profileDob.value) {
                         _profileDob.value = it.dob
@@ -787,8 +787,10 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 if (error != null || snapshot == null) return@addSnapshotListener
                 val docs = snapshot.documents.mapNotNull { doc ->
                     val id = doc.id
-                    val name = doc.getString("name") ?: "Document"
-                    val url = doc.getString("url") ?: ""
+                    val rawName = doc.getString("name")
+                    val rawUrl = doc.getString("url")
+                    val name = if (rawName != null) cryptoManager.decrypt(rawName) ?: rawName else "Document"
+                    val url = if (rawUrl != null) cryptoManager.decrypt(rawUrl) ?: rawUrl else ""
                     val uploadedAt = doc.getLong("uploadedAt") ?: 0L
                     UserDocument(id, name, url, uploadedAt)
                 }
@@ -817,7 +819,16 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .collection("familyMembers")
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
-                val members = snapshot.documents.mapNotNull { it.toObject(com.example.data.FamilyMember::class.java) }
+                val members = snapshot.documents.mapNotNull { doc ->
+                    val obj = doc.toObject(com.example.data.FamilyMember::class.java)
+                    if (obj != null) {
+                        obj.copy(
+                            fullName = cryptoManager.decrypt(obj.fullName) ?: obj.fullName,
+                            dateOfBirth = cryptoManager.decrypt(obj.dateOfBirth) ?: obj.dateOfBirth,
+                            relation = cryptoManager.decrypt(obj.relation) ?: obj.relation
+                        )
+                    } else null
+                }
                 _familyMembers.value = members
                 val now = System.currentTimeMillis()
                 com.example.network.ApiClient.getSessionManager().saveLastSyncTime(now)
@@ -1022,8 +1033,10 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .addOnSuccessListener { snapshot ->
                 val docs = snapshot.documents.mapNotNull { doc ->
                     val id = doc.id
-                    val name = doc.getString("name") ?: "Document"
-                    val url = doc.getString("url") ?: ""
+                    val rawName = doc.getString("name")
+                    val rawUrl = doc.getString("url")
+                    val name = if (rawName != null) cryptoManager.decrypt(rawName) ?: rawName else "Document"
+                    val url = if (rawUrl != null) cryptoManager.decrypt(rawUrl) ?: rawUrl else ""
                     val uploadedAt = doc.getLong("uploadedAt") ?: 0L
                     UserDocument(id, name, url, uploadedAt)
                 }
@@ -1075,8 +1088,8 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 storageRef.putFile(uri).addOnSuccessListener {
                     storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
                         val data = hashMapOf(
-                            "name" to docName,
-                            "url" to downloadUri.toString(),
+                            "name" to (cryptoManager.encrypt(docName) ?: docName),
+                            "url" to (cryptoManager.encrypt(downloadUri.toString()) ?: downloadUri.toString()),
                             "uploadedAt" to timestamp
                         )
                         FirebaseFirestore.getInstance().collection("users").document(user.uid)
@@ -1142,7 +1155,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
                         val data = hashMapOf(
                             "verificationStatus" to "PENDING",
-                            "documentUrl" to downloadUri.toString(),
+                            "documentUrl" to (cryptoManager.encrypt(downloadUri.toString()) ?: downloadUri.toString()),
                             "updatedAt" to timestamp
                         )
                         FirebaseFirestore.getInstance().collection("users").document(user.uid)
@@ -1349,7 +1362,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     issuingCountry = issuingCountry,
                     expiryDate = expiryDate,
                     updatedAt = System.currentTimeMillis()
-                )
+                ).encrypted(cryptoManager)
                 com.google.firebase.firestore.FirebaseFirestore.getInstance().collection("users").document(user.uid)
                     .collection("private_profile").document("identity")
                     .set(privateIdentity, com.google.firebase.firestore.SetOptions.merge())
@@ -1506,7 +1519,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                         if (task.isSuccessful) {
                             val document = task.result
                             if (document != null && document.exists()) {
-                                val privateIdentity = document.toObject(com.example.data.PrivateIdentity::class.java)
+                                val privateIdentity = document.toObject(com.example.data.PrivateIdentity::class.java)?.decrypted(cryptoManager)
                                 privateIdentity?.let {
                                     updateProfileDob(it.dob)
                                     updateProfileResidency(it.residency)
@@ -1551,7 +1564,16 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .collection("familyMembers")
             .addSnapshotListener { snapshot, e ->
                 if (e != null || snapshot == null) return@addSnapshotListener
-                val members = snapshot.documents.mapNotNull { it.toObject(com.example.data.FamilyMember::class.java) }
+                val members = snapshot.documents.mapNotNull { doc ->
+                    val obj = doc.toObject(com.example.data.FamilyMember::class.java)
+                    if (obj != null) {
+                        obj.copy(
+                            fullName = cryptoManager.decrypt(obj.fullName) ?: obj.fullName,
+                            dateOfBirth = cryptoManager.decrypt(obj.dateOfBirth) ?: obj.dateOfBirth,
+                            relation = cryptoManager.decrypt(obj.relation) ?: obj.relation
+                        )
+                    } else null
+                }
                 _familyMembers.value = members
             }
     }
@@ -1561,9 +1583,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         val ref = FirebaseFirestore.getInstance().collection("users").document(user.uid).collection("familyMembers").document()
         val member = com.example.data.FamilyMember(
             id = ref.id,
-            fullName = fullName,
-            dateOfBirth = dateOfBirth,
-            relation = relation
+            fullName = cryptoManager.encrypt(fullName) ?: fullName,
+            dateOfBirth = cryptoManager.encrypt(dateOfBirth) ?: dateOfBirth,
+            relation = cryptoManager.encrypt(relation) ?: relation
         )
         ref.set(member)
         logActivity("INFO", "Added family member: $fullName")
@@ -1708,7 +1730,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     val publicProfile = publicSnap.toObject(com.example.data.PublicProfile::class.java)
 
                     userDocRef.collection("private_profile").document("identity").get().addOnSuccessListener { privateSnap ->
-                        val privateIdentity = privateSnap.toObject(com.example.data.PrivateIdentity::class.java)
+                        val privateIdentity = privateSnap.toObject(com.example.data.PrivateIdentity::class.java)?.decrypted(cryptoManager)
 
                         viewModelScope.launch {
                             val local = userProfileDao.getUserProfileSync(user.uid)?.decrypted(cryptoManager)
@@ -1792,19 +1814,20 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                         FirebaseFirestore.getInstance().collection("users").document(user.uid)
                             .set(publicMap, com.google.firebase.firestore.SetOptions.merge())
 
-                        val privateMap = mapOf(
-                            "dob" to local.dob,
-                            "residency" to local.residency,
-                            "passportNumber" to local.passportNumber,
-                            "licenseNumber" to local.licenseNumber,
-                            "docType" to local.docType,
-                            "docNumber" to local.docNumber,
-                            "issuingCountry" to local.issuingCountry,
-                            "expiryDate" to local.expiryDate
-                        )
+                        val privateIdentityObj = com.example.data.PrivateIdentity(
+                            dob = local.dob,
+                            residency = local.residency,
+                            passportNumber = local.passportNumber,
+                            licenseNumber = local.licenseNumber,
+                            docType = local.docType,
+                            docNumber = local.docNumber,
+                            issuingCountry = local.issuingCountry,
+                            expiryDate = local.expiryDate
+                        ).encrypted(cryptoManager)
+
                         FirebaseFirestore.getInstance().collection("users").document(user.uid)
                             .collection("private_profile").document("identity")
-                            .set(privateMap, com.google.firebase.firestore.SetOptions.merge())
+                            .set(privateIdentityObj, com.google.firebase.firestore.SetOptions.merge())
 
                         val updatedLocal = local.copy(lastSyncTime = System.currentTimeMillis())
                         userProfileDao.insertUserProfile(updatedLocal.encrypted(cryptoManager))

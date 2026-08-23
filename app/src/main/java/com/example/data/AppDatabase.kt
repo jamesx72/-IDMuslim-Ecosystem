@@ -22,6 +22,9 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
+                // Initialize SQLCipher native libraries
+                net.sqlcipher.database.SQLiteDatabase.loadLibs(context)
+                
                 val passphrase = DatabaseKeyManager.getPassphrase(context)
                 val factory = SupportFactory(passphrase)
                 

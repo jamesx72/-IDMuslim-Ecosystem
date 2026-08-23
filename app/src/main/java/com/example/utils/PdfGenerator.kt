@@ -187,12 +187,12 @@ object PdfGenerator {
 
             // 5. Apply password encryption if enabled
             if (options.isPasswordProtected && options.password.isNotBlank()) {
-                finalPdfBytes = PdfEncryptor.encryptPdf(finalPdfBytes, options.password)
+                finalPdfBytes = PdfEncryptor.encryptPdf(context, finalPdfBytes, options.password)
             }
 
-            // 6. Save to Download directory or internal cache
-            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!downloadDir.exists()) downloadDir.mkdirs()
+            // 6. Save to safe cache directory to support reliable FileProvider sharing
+            val pdfsDir = File(context.cacheDir, "pdfs")
+            if (!pdfsDir.exists()) pdfsDir.mkdirs()
 
             val fileName = if (options.isPasswordProtected) {
                 "IDMuslim_Carte_Securisee_${memberId}_${System.currentTimeMillis()}.pdf"
@@ -200,15 +200,11 @@ object PdfGenerator {
                 "IDMuslim_Carte_Imprimable_${memberId}_${System.currentTimeMillis()}.pdf"
             }
 
-            val file = File(downloadDir, fileName)
+            val file = File(pdfsDir, fileName)
             val fos = FileOutputStream(file)
             fos.write(finalPdfBytes)
             fos.flush()
             fos.close()
-
-            // Also keep a copy in app cache for instant sharing
-            val cacheFile = File(context.cacheDir, fileName)
-            cacheFile.writeBytes(finalPdfBytes)
 
             onSuccess?.invoke(file)
             return file

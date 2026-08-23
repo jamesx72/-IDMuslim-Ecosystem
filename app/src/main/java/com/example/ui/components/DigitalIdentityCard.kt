@@ -231,6 +231,11 @@ fun DigitalIdentityCard(
                         }
                     }
                 }
+                HolographicWatermarkOverlay(
+                    memberId = userId,
+                    isVerified = isVerified,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         } else {
             // Back Side
@@ -280,6 +285,15 @@ fun DigitalIdentityCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                HolographicWatermarkOverlay(
+                    memberId = userId,
+                    isVerified = isVerified,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            rotationY = 180f
+                        }
+                )
             }
         }
     }

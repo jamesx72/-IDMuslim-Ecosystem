@@ -4,6 +4,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import com.example.data.PrivateIdentity
 import com.example.data.DocumentEntity
 import com.example.data.UserProfileEntity
 import java.security.KeyStore
@@ -183,5 +184,29 @@ fun DocumentEntity.decrypted(cryptoManager: CryptoManager = CryptoManager.getIns
         name = cryptoManager.decrypt(name) ?: name,
         url = cryptoManager.decrypt(url) ?: url,
         docType = cryptoManager.decrypt(docType) ?: docType
+    )
+}
+
+fun PrivateIdentity.encrypted(cryptoManager: CryptoManager = CryptoManager.getInstance()): PrivateIdentity {
+    return this.copy(
+        dob = cryptoManager.encrypt(dob) ?: dob,
+        residency = cryptoManager.encrypt(residency) ?: residency,
+        passportNumber = cryptoManager.encrypt(passportNumber) ?: passportNumber,
+        licenseNumber = cryptoManager.encrypt(licenseNumber) ?: licenseNumber,
+        docType = cryptoManager.encrypt(docType) ?: docType,
+        docNumber = cryptoManager.encrypt(docNumber) ?: docNumber,
+        issuingCountry = cryptoManager.encrypt(issuingCountry) ?: issuingCountry
+    )
+}
+
+fun PrivateIdentity.decrypted(cryptoManager: CryptoManager = CryptoManager.getInstance()): PrivateIdentity {
+    return this.copy(
+        dob = cryptoManager.decrypt(dob) ?: dob,
+        residency = cryptoManager.decrypt(residency) ?: residency,
+        passportNumber = cryptoManager.decrypt(passportNumber) ?: passportNumber,
+        licenseNumber = cryptoManager.decrypt(licenseNumber) ?: licenseNumber,
+        docType = cryptoManager.decrypt(docType) ?: docType,
+        docNumber = cryptoManager.decrypt(docNumber) ?: docNumber,
+        issuingCountry = cryptoManager.decrypt(issuingCountry) ?: issuingCountry
     )
 }

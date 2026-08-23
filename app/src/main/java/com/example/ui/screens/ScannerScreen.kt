@@ -70,7 +70,9 @@ data class VerificationResult(
     val issuedAt: Long,
     val signature: String,
     val securityRemarks: String,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val nfcUid: String? = null,
+    val cryptoHash: String? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
@@ -136,6 +138,8 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                 val community = json.optString("community", "Mosquée Partenaire")
                 val issuedAt = json.optLong("issuedAt", System.currentTimeMillis() / 1000)
                 val sig = json.optString("sig", "")
+                val nfcUid = if (json.has("nfcUid")) json.optString("nfcUid") else null
+                val cryptoHash = if (json.has("cryptoHash")) json.optString("cryptoHash") else null
 
                 val isExpired = (System.currentTimeMillis() / 1000 - issuedAt) > (365 * 24 * 3600)
                 val tier = when {
@@ -155,7 +159,9 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                     residency = residency,
                     issuedAt = issuedAt,
                     signature = sig.ifEmpty { "SHA256-AUTHENTICATED" },
-                    securityRemarks = if (isExpired) "Certificat expiré. Renouvellement requis." else "Signature cryptographique SHA-256 valide et conforme au registre IDMuslim."
+                    securityRemarks = if (isExpired) "Certificat expiré. Renouvellement requis." else "Signature cryptographique SHA-256 valide et conforme au registre IDMuslim.",
+                    nfcUid = nfcUid,
+                    cryptoHash = cryptoHash
                 )
             } else if (trimmed.startsWith("IDM-") || trimmed.length in 5..30) {
                 // Short ID code lookup
@@ -424,36 +430,49 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                 } else {
                                     if (cameraPermissionState.status.isGranted) {
                                         val lifecycleOwner = LocalLifecycleOwner.current
+                                        val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+                                        DisposableEffect(lifecycleOwner, selectedTab) {
+                                            onDispose {
+                                                try {
+                                                    val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+                                                    cameraProvider.unbindAll()
+                                                } catch (e: Exception) {
+                                                    // ignore
+                                                }
+                                            }
+                                        }
                                         AndroidView(
                                             factory = { ctx ->
-                                                val previewView = PreviewView(ctx)
+                                                val previewView = PreviewView(ctx).apply {
+                                                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                                }
                                                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                                                 cameraProviderFuture.addListener({
-                                                    val cameraProvider = cameraProviderFuture.get()
-                                                    val preview = Preview.Builder().build().also {
-                                                        it.setSurfaceProvider(previewView.surfaceProvider)
-                                                    }
-
-                                                    val imageAnalysis = ImageAnalysis.Builder()
-                                                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                                        .build()
-                                                        .also {
-                                                            it.setAnalyzer(
-                                                                Executors.newSingleThreadExecutor(),
-                                                                com.example.utils.QrCodeAnalyzer { qrText ->
-                                                                    if (!showResultDialog) {
-                                                                        coroutineScope.launch {
-                                                                            triggerVerification(qrText)
-                                                                        }
-                                                                    }
-                                                                }
-                                                            )
+                                                    try {
+                                                        val cameraProvider = cameraProviderFuture.get()
+                                                        val preview = Preview.Builder().build().also {
+                                                            it.setSurfaceProvider(previewView.surfaceProvider)
                                                         }
 
-                                                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                                                        val imageAnalysis = ImageAnalysis.Builder()
+                                                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                                            .build()
+                                                            .also {
+                                                                it.setAnalyzer(
+                                                                    cameraExecutor,
+                                                                    com.example.utils.QrCodeAnalyzer { qrText ->
+                                                                        if (!showResultDialog) {
+                                                                            coroutineScope.launch {
+                                                                                triggerVerification(qrText)
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                )
+                                                            }
 
-                                                    try {
+                                                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
                                                         cameraProvider.unbindAll()
                                                         cameraProvider.bindToLifecycle(
                                                             lifecycleOwner,
@@ -467,6 +486,14 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                                                 }, ContextCompat.getMainExecutor(ctx))
 
                                                 previewView
+                                            },
+                                            onRelease = {
+                                                try {
+                                                    val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+                                                    cameraProvider.unbindAll()
+                                                } catch (e: Exception) {
+                                                    // ignore
+                                                }
                                             },
                                             modifier = Modifier.fillMaxSize().padding(1.dp).clip(RoundedCornerShape(24.dp))
                                         )
@@ -937,6 +964,12 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
                     Text("• Mosquée / Communauté : ${res.community}")
                     Text("• Date de Naissance : ${res.dateOfBirth}")
                     Text("• Pays de Résidence : ${res.residency}")
+                    if (res.nfcUid != null) {
+                        Text("• UID NFC : ${res.nfcUid}", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (res.cryptoHash != null) {
+                        Text("• Hash Sécurisé : ${res.cryptoHash.take(20)}...", fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    }
                     Text("• Empreinte : ${res.signature.take(16)}...", fontFamily = FontFamily.Monospace, fontSize = 11.sp)
 
                     Spacer(modifier = Modifier.height(6.dp))

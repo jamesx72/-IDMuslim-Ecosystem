@@ -155,13 +155,35 @@ fun IDMuslimApp(startRoute: String = "auth") {
         ) {
             composable(Screen.Splash.route) {
                 SplashScreen(onSplashFinished = {
-                    val nextRoute = if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
-                        Screen.Profile.route
+                    if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                        val activity = context as? androidx.fragment.app.FragmentActivity
+                        if (activity != null && com.example.security.BiometricHelper.canAuthenticate(context)) {
+                            com.example.security.BiometricHelper.authenticate(
+                                activity = activity,
+                                title = "IDMuslim",
+                                subtitle = "Authenticate to open",
+                                onSuccess = {
+                                    navController.navigate(Screen.Profile.route) {
+                                        popUpTo(Screen.Splash.route) { inclusive = true }
+                                    }
+                                },
+                                onError = { error ->
+                                    android.widget.Toast.makeText(context, "Authentication canceled.", android.widget.Toast.LENGTH_SHORT).show()
+                                    // Fallback to Auth on cancellation or error
+                                    navController.navigate(Screen.Auth.route) {
+                                        popUpTo(Screen.Splash.route) { inclusive = true }
+                                    }
+                                }
+                            )
+                        } else {
+                            navController.navigate(Screen.Profile.route) {
+                                popUpTo(Screen.Splash.route) { inclusive = true }
+                            }
+                        }
                     } else {
-                        Screen.Auth.route
-                    }
-                    navController.navigate(nextRoute) {
-                        popUpTo(Screen.Splash.route) { inclusive = true }
+                        navController.navigate(Screen.Auth.route) {
+                            popUpTo(Screen.Splash.route) { inclusive = true }
+                        }
                     }
                 })
             }
