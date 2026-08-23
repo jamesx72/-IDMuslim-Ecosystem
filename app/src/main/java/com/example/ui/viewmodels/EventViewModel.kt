@@ -64,6 +64,9 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAccountSuspended = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isAccountSuspended())
     val isAccountSuspended: StateFlow<Boolean> = _isAccountSuspended.asStateFlow()
 
+    private val _isDeviceCompromised = MutableStateFlow(com.example.security.DeviceIntegrityChecker.isCompromised(application))
+    val isDeviceCompromised: StateFlow<Boolean> = _isDeviceCompromised.asStateFlow()
+
     private val _verificationStep = MutableStateFlow("")
     val verificationStep: StateFlow<String> = _verificationStep.asStateFlow()
 

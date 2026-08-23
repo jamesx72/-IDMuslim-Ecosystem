@@ -138,6 +138,7 @@ fun ProfileScreen(
 
     val lastBackgroundSyncTime by viewModel.lastBackgroundSyncTime.collectAsState()
     val isAccountSuspended by viewModel.isAccountSuspended.collectAsState()
+    val isDeviceCompromised by viewModel.isDeviceCompromised.collectAsState()
     val isOnline by viewModel.isOnline.collectAsState()
     val isBackgroundSyncEnabled by viewModel.isBackgroundSyncEnabled.collectAsState()
     val isRealtimeSyncActive by viewModel.isRealtimeSyncActive.collectAsState()
@@ -580,27 +581,50 @@ fun ProfileScreen(
                 if (selectedTab == 0) {
                     item {
                         if (isAuthenticated) {
-                            com.example.ui.components.DigitalIdCard(
-                                memberId = memberId,
-                                isVerified = isVerified,
-                                verificationStatus = verificationStatus,
-                                verificationStep = verificationStep,
-                                profilePhotoBase64 = profilePhoto,
-                                cardTheme = cardTheme,
-                                fullName = profileFullName,
-                                dateOfBirth = profileDateOfBirth,
-                                residency = profileResidency,
-                                communityAffiliation = profileCommunityAffiliation,
-                                passportNumber = profilePassport,
-                                licenseNumber = profileLicense,
-                                expiryDate = expiryDate,
-                                language = language,
-                                privacyMode = privacyMode,
-                                lastSyncTime = lastBackgroundSyncTime,
-                                isSuspended = isAccountSuspended,
-                                onPhotoClick = { showPhotoMenu = true },
-                                onDownloadPdfClick = { showSecurePdfDialog = true }
-                            )
+                            if (isDeviceCompromised) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Security, contentDescription = "Security Alert", tint = MaterialTheme.colorScheme.error)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = "Environnement non sécurisé ou rooté (Debuggable/Root). La vue sensible a été masquée par sécurité.",
+                                            color = MaterialTheme.colorScheme.error,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            } else {
+                                com.example.ui.components.DigitalIdCard(
+                                    memberId = memberId,
+                                    isVerified = isVerified,
+                                    verificationStatus = verificationStatus,
+                                    verificationStep = verificationStep,
+                                    profilePhotoBase64 = profilePhoto,
+                                    cardTheme = cardTheme,
+                                    fullName = profileFullName,
+                                    dateOfBirth = profileDateOfBirth,
+                                    residency = profileResidency,
+                                    communityAffiliation = profileCommunityAffiliation,
+                                    passportNumber = profilePassport,
+                                    licenseNumber = profileLicense,
+                                    expiryDate = expiryDate,
+                                    language = language,
+                                    privacyMode = privacyMode,
+                                    lastSyncTime = lastBackgroundSyncTime,
+                                    isSuspended = isAccountSuspended,
+                                    onPhotoClick = { showPhotoMenu = true },
+                                    onDownloadPdfClick = { showSecurePdfDialog = true }
+                                )
+                            }
 
                             if (isAccountSuspended || verificationStatus.equals("SUSPENDED", ignoreCase = true) || verificationStatus.equals("REVOKED", ignoreCase = true)) {
                                 Card(
