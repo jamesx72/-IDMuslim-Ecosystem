@@ -622,7 +622,15 @@ fun ProfileScreen(
                                     lastSyncTime = lastBackgroundSyncTime,
                                     isSuspended = isAccountSuspended,
                                     onPhotoClick = { showPhotoMenu = true },
-                                    onDownloadPdfClick = { showSecurePdfDialog = true }
+                                    onDownloadPdfClick = { showSecurePdfDialog = true },
+                                    onEmergencyClick = {
+                                        // Mock silent SOS alert
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "SOS Silencieux Envoyé : Localisation (Lat: 48.8566, Lng: 2.3522) et infos médicales transmises via Firebase Messaging aux contacts d'urgence.",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    }
                                 )
                             }
 

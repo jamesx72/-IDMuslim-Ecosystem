@@ -87,6 +87,7 @@ fun DigitalIdCard(
     onPhotoClick: (() -> Unit)? = null,
     lastSyncTime: Long? = null,
     onDownloadPdfClick: (() -> Unit)? = null,
+    onEmergencyClick: (() -> Unit)? = null,
     onShareClick: (() -> Unit)? = null,
     isSuspended: Boolean = false,
     modifier: Modifier = Modifier
@@ -389,19 +390,36 @@ fun DigitalIdCard(
                             }
                         }
                         
-                        if (onDownloadPdfClick != null) {
-                            androidx.compose.material3.IconButton(
-                                onClick = {
-                                    HapticHelper.performClick(context, haptic)
-                                    onDownloadPdfClick()
-                                },
-                                modifier = Modifier.size(32.dp).padding(start = 8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PictureAsPdf,
-                                    contentDescription = "Download PDF",
-                                    tint = Color.White.copy(alpha = 0.8f)
-                                )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (onDownloadPdfClick != null) {
+                                androidx.compose.material3.IconButton(
+                                    onClick = {
+                                        HapticHelper.performClick(context, haptic)
+                                        onDownloadPdfClick()
+                                    },
+                                    modifier = Modifier.size(32.dp).padding(start = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PictureAsPdf,
+                                        contentDescription = "Download PDF",
+                                        tint = Color.White.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                            if (onEmergencyClick != null) {
+                                androidx.compose.material3.IconButton(
+                                    onClick = {
+                                        HapticHelper.performClick(context, haptic)
+                                        onEmergencyClick()
+                                    },
+                                    modifier = Modifier.size(32.dp).padding(start = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.Icons.Default.Warning,
+                                        contentDescription = "SOS Emergency",
+                                        tint = Color(0xFFEF4444)
+                                    )
+                                }
                             }
                         }
                         
