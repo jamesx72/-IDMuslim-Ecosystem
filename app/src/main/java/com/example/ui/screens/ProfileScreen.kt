@@ -177,6 +177,8 @@ fun ProfileScreen(
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showSecurePdfDialog by remember { mutableStateOf(false) }
     var showVerificationQrDialog by remember { mutableStateOf(false) }
+    var showSignatureDialog by remember { mutableStateOf(false) }
+    var signatureData by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showIdReadyAlert by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
     var showFaqDialog by remember { mutableStateOf(false) }
@@ -867,6 +869,38 @@ fun ProfileScreen(
                             },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
                         )
+                        
+                        DashboardActionCard(
+                            icon = Icons.Default.Fingerprint,
+                            title = "Signer Numériquement la Carte",
+                            subtitle = "Signature cryptographique via Android Keystore",
+                            onClick = {
+                                actionScope.launch {
+                                    val authResult = com.example.utils.BiometricHelper.authenticate(context)
+                                    if (authResult) {
+                                        val payloadToSign = """
+                                            {
+                                                "memberId": "$memberId",
+                                                "fullName": "$profileFullName",
+                                                "expiryDate": "$expiryDate",
+                                                "verificationStatus": "$verificationStatus"
+                                            }
+                                        """.trimIndent()
+                                        
+                                        val signatureBase64 = com.example.security.KeystoreManager.signData(payloadToSign)
+                                        val publicKeyBase64 = com.example.security.KeystoreManager.getPublicKeyBase64()
+                                        
+                                        if (signatureBase64 != null && publicKeyBase64 != null) {
+                                            signatureData = Pair(signatureBase64, publicKeyBase64)
+                                            showSignatureDialog = true
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Erreur lors de la signature cryptographique.", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+                        )
 
 
                     } else {
@@ -1455,6 +1489,50 @@ fun ProfileScreen(
             },
             onViewId = {
                 selectedTab = 0
+            }
+        )
+    }
+
+    if (showSignatureDialog && signatureData != null) {
+        AlertDialog(
+            onDismissRequest = { showSignatureDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Fingerprint, contentDescription = "Signature", tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Signature Cryptographique", style = MaterialTheme.typography.titleMedium)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Authenticité garantie via clé privée ECDSA stockée dans l'Android Keystore.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Signature (Base64) :", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp)) {
+                        Text(
+                            text = signatureData!!.first,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                    Text("Clé Publique (Base64) :", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                        Text(
+                            text = signatureData!!.second,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSignatureDialog = false }) {
+                    Text("Fermer")
+                }
             }
         )
     }
