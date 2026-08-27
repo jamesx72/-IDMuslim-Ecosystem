@@ -411,7 +411,7 @@ fun PrivacySettingsDashboard(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        val previewUrl = "https://idmuslim.org/verify/u981?dob=${if (shareLinkDob) 1 else 0}&res=${if (shareLinkResidency) 1 else 0}&status=${if (shareLinkStatus) 1 else 0}&photo=${if (shareLinkPhoto) 1 else 0}"
+                        val previewUrl = "https://verify.idmuslim.org/portal?id=IDM-7860&dob=${if (shareLinkDob) 1 else 0}&res=${if (shareLinkResidency) 1 else 0}&status=${if (shareLinkStatus) 1 else 0}&photo=${if (shareLinkPhoto) 1 else 0}"
                         Text(
                             text = previewUrl,
                             fontFamily = FontFamily.Monospace,

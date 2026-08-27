@@ -67,6 +67,8 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
 
+val LocalCardFontScale = compositionLocalOf { 1.0f }
+
 @Composable
 fun DigitalIdCard(
     memberId: String,
@@ -90,6 +92,9 @@ fun DigitalIdCard(
     onEmergencyClick: (() -> Unit)? = null,
     onShareClick: (() -> Unit)? = null,
     isSuspended: Boolean = false,
+    isSolarAdaptive: Boolean = false,
+    solarState: com.example.utils.SolarState? = null,
+    cardFontScale: Float = 1.0f,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -99,12 +104,28 @@ fun DigitalIdCard(
         verificationStatus.equals("SUSPENDED", ignoreCase = true) || 
         verificationStatus.equals("REVOKED", ignoreCase = true)
 
+    val activeVisualTheme = remember(cardTheme, isSolarAdaptive, solarState) {
+        if (isSolarAdaptive && solarState != null && !effectiveSuspended) {
+            CardVisualThemes.getThemeById(solarState.adaptedThemeId)
+        } else {
+            CardVisualThemes.getThemeById(cardTheme)
+        }
+    }
+
     val themeColors = if (effectiveSuspended) {
         listOf(Color(0xFF3B0707), Color(0xFF5B1111), Color(0xFF7F1D1D)) // Dark Crimson & Red Tone
-    } else when (cardTheme) {
-        1 -> listOf(Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)) // Ocean Depth
-        2 -> listOf(Color(0xFF23074D), Color(0xFFCC5333)) // Sunset Ruby
-        else -> listOf(Color(0xFF0F2027), Color(0xFF14533C), Color(0xFF14533C)) // Emerald
+    } else if (isSolarAdaptive && solarState != null) {
+        solarState.adaptedGradientColors
+    } else {
+        activeVisualTheme.gradientColors
+    }
+
+    val activeAccentColor = if (effectiveSuspended) {
+        Color(0xFFEF4444)
+    } else if (isSolarAdaptive && solarState != null) {
+        solarState.adaptedAccentColor
+    } else {
+        activeVisualTheme.accentColor
     }
 
     val isExpiringSoon = remember(expiryDate) {
@@ -153,6 +174,7 @@ fun DigitalIdCard(
     )
     
     var shieldActive by remember { mutableStateOf(true) }
+    var showWebPortalDialog by remember { mutableStateOf(false) }
     val blurRadius by animateDpAsState(
         targetValue = if (shieldActive) 8.dp else 0.dp,
         animationSpec = tween(durationMillis = 300)
@@ -175,6 +197,15 @@ fun DigitalIdCard(
         val b3 = ((hash shr 16) and 0xFF).toString(16).padStart(2, '0').uppercase()
         val b4 = ((hash shr 24) and 0xFF).toString(16).padStart(2, '0').uppercase()
         "04:$b1:$b2:$b3:$b4"
+    }
+
+    val portalInfo = remember(memberId, fullName, verificationStatus, communityAffiliation) {
+        com.example.utils.VerificationPortalHelper.getOrCreateActivePortal(
+            memberId = memberId,
+            fullName = fullName,
+            verificationStatus = verificationStatus,
+            community = communityAffiliation
+        )
     }
 
     LaunchedEffect(cryptoHash, nfcChipUid, memberId, verificationStatus) {
@@ -318,19 +349,20 @@ fun DigitalIdCard(
                 )
             }
 
-            if (rotation <= 90f) {
-                AsyncImage(
-                    model = "https://images.unsplash.com/photo-1565552645632-d725f8bfc19a?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80",
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = 0.35f
-                )
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(20.dp)
-            ) {
+            // Subtle culturally appropriate geometric and Islamic art motif layer
+            IslamicCardPatternBackground(
+                themeIndex = activeVisualTheme.id,
+                modifier = Modifier.fillMaxSize(),
+                alphaMultiplier = if (effectiveSuspended) 0.35f else 1.0f
+            )
+
+            CompositionLocalProvider(LocalCardFontScale provides cardFontScale) {
+                if (rotation <= 90f) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp)
+                    ) {
                 // Header: Logo / Title and Photo/Badge
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -388,6 +420,37 @@ fun DigitalIdCard(
                                     )
                                 }
                             }
+
+                            if (isSolarAdaptive && solarState != null) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = activeAccentColor.copy(alpha = 0.22f),
+                                    border = BorderStroke(1.dp, activeAccentColor.copy(alpha = 0.45f)),
+                                    modifier = Modifier.clip(RoundedCornerShape(10.dp))
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = solarState.phaseIcon,
+                                            contentDescription = null,
+                                            tint = activeAccentColor,
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = solarState.phaseDisplayName.uppercase(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = activeAccentColor,
+                                            letterSpacing = 0.5.sp
+                                        )
+                                    }
+                                }
+                            }
                         }
                         
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -424,13 +487,14 @@ fun DigitalIdCard(
                         }
                         
                         Spacer(modifier = Modifier.height(12.dp))
+                        val nameFontSize = (19f * cardFontScale).coerceIn(15f, 22f).sp
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
                                 text = if (fullName.isNotBlank()) fullName.uppercase() else Translations.get(language, "user").uppercase(),
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MaterialTheme.typography.titleLarge.copy(fontSize = nameFontSize),
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
                                 modifier = Modifier.weight(1f, fill = false).then(blurModifier),
@@ -508,15 +572,18 @@ fun DigitalIdCard(
 
                 Spacer(modifier = Modifier.weight(1f))
                 
+                val shahadaFontSize = (11f * cardFontScale).coerceIn(9.5f, 13f).sp
                 Text(
                     text = Translations.get(language, "shahada_text"),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = shahadaFontSize),
                     color = Color.White.copy(alpha = 0.9f),
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = 8.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -566,11 +633,10 @@ fun DigitalIdCard(
                         }
                     }
                     
-                    // Small QR code for quick scan
-                    val smallQrBitmap = remember(memberId) {
+                    // Small QR code for quick scan encoding unique web verification portal URL
+                    val smallQrBitmap = remember(portalInfo.url) {
                         try {
-                            val payload = "https://idmuslim.org/verify/$memberId"
-                            val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 200, 200)
+                            val bitMatrix = QRCodeWriter().encode(portalInfo.url, BarcodeFormat.QR_CODE, 200, 200)
                             val bitmap = Bitmap.createBitmap(200, 200, Bitmap.Config.RGB_565)
                             for (x in 0 until 200) {
                                 for (y in 0 until 200) {
@@ -588,13 +654,17 @@ fun DigitalIdCard(
                             .size(50.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.White)
-                            .padding(2.dp),
+                            .padding(2.dp)
+                            .clickable {
+                                HapticHelper.performClick(context, haptic)
+                                showWebPortalDialog = true
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         if (smallQrBitmap != null) {
                             Image(
                                 bitmap = smallQrBitmap,
-                                contentDescription = "QR Code",
+                                contentDescription = "Verification Web Portal QR Code",
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
@@ -803,11 +873,10 @@ fun DigitalIdCard(
                             }
                         }
 
-                        // Right Column: Full Verification QR Code
-                        val qrBitmap = remember(memberId) {
+                        // Right Column: Full Verification QR Code encoding Unique Web Portal URL
+                        val qrBitmap = remember(portalInfo.url) {
                             try {
-                                val payload = "https://idmuslim.org/verify/$memberId"
-                                val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 300, 300)
+                                val bitMatrix = QRCodeWriter().encode(portalInfo.url, BarcodeFormat.QR_CODE, 300, 300)
                                 val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.RGB_565)
                                 for (x in 0 until 300) {
                                     for (y in 0 until 300) {
@@ -829,7 +898,12 @@ fun DigitalIdCard(
                                 shape = RoundedCornerShape(10.dp),
                                 color = Color.White,
                                 shadowElevation = 6.dp,
-                                modifier = Modifier.size(68.dp)
+                                modifier = Modifier
+                                    .size(68.dp)
+                                    .clickable {
+                                        HapticHelper.performClick(context, haptic)
+                                        showWebPortalDialog = true
+                                    }
                             ) {
                                 Box(
                                     modifier = Modifier.fillMaxSize().padding(4.dp),
@@ -838,7 +912,7 @@ fun DigitalIdCard(
                                     if (qrBitmap != null) {
                                         Image(
                                             bitmap = qrBitmap,
-                                            contentDescription = "QR Code Verification",
+                                            contentDescription = "QR Code Web Verification Portal",
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     } else {
@@ -852,14 +926,28 @@ fun DigitalIdCard(
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "SCAN TO VERIFY",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 7.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.7f),
-                                letterSpacing = 0.8.sp
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.White.copy(alpha = 0.2f),
+                                modifier = Modifier.clickable {
+                                    HapticHelper.performClick(context, haptic)
+                                    showWebPortalDialog = true
+                                }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "PORTAIL WEB",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF6EE7B7),
+                                        letterSpacing = 0.6.sp
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -901,6 +989,7 @@ fun DigitalIdCard(
                         )
                     }
                 }
+            }
             }
 
             // High Visibility Security Suspended / Revoked Overlay
@@ -986,26 +1075,54 @@ fun DigitalIdCard(
             )
         }
     }
+
+    if (showWebPortalDialog) {
+        WebVerificationPortalDialog(
+            memberId = memberId,
+            fullName = fullName,
+            verificationStatus = verificationStatus,
+            communityAffiliation = communityAffiliation,
+            dateOfBirth = dateOfBirth,
+            residency = residency,
+            photoBase64 = profilePhotoBase64,
+            language = language,
+            onDismiss = { showWebPortalDialog = false }
+        )
+    }
 }
 
 @Composable
-fun IdField(label: String, value: String, isMonospace: Boolean = false, textColor: Color = Color.White, modifier: Modifier = Modifier) {
+fun IdField(
+    label: String,
+    value: String,
+    isMonospace: Boolean = false,
+    textColor: Color = Color.White,
+    fontSize: androidx.compose.ui.unit.TextUnit? = null,
+    modifier: Modifier = Modifier
+) {
+    val fontScale = LocalCardFontScale.current
+    val labelFontSize = (8f * fontScale).coerceIn(7f, 11f).sp
+    val valueFontSize = fontSize ?: (13f * fontScale).coerceIn(10.5f, 17f).sp
+
     Column(modifier = modifier) {
         Text(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
             color = Color.White.copy(alpha = 0.6f),
-            letterSpacing = 1.2.sp,
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Bold
+            letterSpacing = (1.2f * fontScale.coerceAtMost(1.15f)).sp,
+            fontSize = labelFontSize,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
+        Spacer(modifier = Modifier.height((1f * fontScale.coerceAtMost(1.2f)).dp))
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (isMonospace) FontWeight.Normal else FontWeight.Medium,
             fontFamily = if (isMonospace) FontFamily.Monospace else FontFamily.Default,
             color = textColor,
-            fontSize = 13.sp,
+            fontSize = valueFontSize,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

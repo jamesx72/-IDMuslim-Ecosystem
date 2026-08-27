@@ -118,6 +118,9 @@ fun ProfileScreen(
     val verificationStep by viewModel.verificationStep.collectAsState()
     val profilePhoto by viewModel.profilePhotoBase64.collectAsState()
     val cardTheme by viewModel.cardTheme.collectAsState()
+    val cardFontScale by viewModel.cardFontScale.collectAsState()
+    val isSolarAdaptiveTheme by viewModel.isSolarAdaptiveTheme.collectAsState()
+    val solarState by viewModel.solarState.collectAsState()
     val language by viewModel.language.collectAsState()
     val privacyMode by viewModel.privacyMode.collectAsState()
     val activityLogs by viewModel.activityLogs.collectAsState()
@@ -612,6 +615,9 @@ fun ProfileScreen(
                                     verificationStep = verificationStep,
                                     profilePhotoBase64 = profilePhoto,
                                     cardTheme = cardTheme,
+                                    isSolarAdaptive = isSolarAdaptiveTheme,
+                                    solarState = solarState,
+                                    cardFontScale = cardFontScale,
                                     fullName = profileFullName,
                                     dateOfBirth = profileDateOfBirth,
                                     residency = profileResidency,
@@ -2155,11 +2161,23 @@ fun ProfileQrSection(
             
             Button(
                 onClick = {
-                    val shareUrl = "https://idmuslim.org/badge/${memberId}?token=${currentSignature}&fn=${if (shareLinkFullName) 1 else 0}&dob=${if (shareLinkDob) 1 else 0}&res=${if (shareLinkResidency) 1 else 0}&com=${if (shareLinkCommunity) 1 else 0}&status=${if (shareLinkStatus) 1 else 0}&photo=${if (shareLinkPhoto) 1 else 0}"
+                    val portal = com.example.utils.VerificationPortalHelper.generatePortalUrl(
+                        memberId = memberId,
+                        fullName = fullName,
+                        verificationStatus = verificationStatus,
+                        community = communityAffiliation,
+                        dateOfBirth = dateOfBirth,
+                        residency = residency,
+                        includeDob = shareLinkDob,
+                        includeResidency = shareLinkResidency,
+                        includeCommunity = shareLinkCommunity,
+                        includePhoto = shareLinkPhoto
+                    )
+                    val shareUrl = portal.url
                     val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                         type = "text/plain"
                         putExtra(android.content.Intent.EXTRA_SUBJECT, Translations.get(language, "share_badge_subject"))
-                        putExtra(android.content.Intent.EXTRA_TEXT, String.format(Translations.get(language, "share_badge_text"), shareUrl))
+                        putExtra(android.content.Intent.EXTRA_TEXT, "Portail de vérification d'identité IDMuslim certifié : $shareUrl (Accessible dans n'importe quel navigateur web sans installer l'application)")
                     }
                     context.startActivity(android.content.Intent.createChooser(shareIntent, Translations.get(language, "share_badge")))
                 },
@@ -2185,12 +2203,12 @@ fun ProfileQrSection(
                 )
             ) {
                 Icon(
-                    imageVector = Icons.Default.Link,
+                    imageVector = Icons.Default.Public,
                     contentDescription = Translations.get(language, "temp_qr_generate"),
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(Translations.get(language, "temp_qr_generate"))
+                Text("Portail Web de Vérification (Sans Application)")
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -2253,69 +2271,16 @@ fun ProfileQrSection(
     }
 
     if (showTempLinkQrDialog) {
-        AlertDialog(
-            onDismissRequest = { showTempLinkQrDialog = false },
-            title = {
-                Text(
-                    "Lien de Partage Temporaire",
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            },
-            text = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        "Ce QR Code contient une URL temporaire valide pour une seule lecture. Laissez la personne le scanner pour vérifier rapidement votre identité.",
-                        style = MaterialTheme.typography.bodySmall,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    
-                    val tempLinkId = remember { java.util.UUID.randomUUID().toString().take(8) }
-                    val tempShareUrl = "https://idmuslim.org/temp/$tempLinkId?memberId=$memberId&fn=${if (shareLinkFullName) 1 else 0}&dob=${if (shareLinkDob) 1 else 0}&res=${if (shareLinkResidency) 1 else 0}&com=${if (shareLinkCommunity) 1 else 0}&status=${if (shareLinkStatus) 1 else 0}&photo=${if (shareLinkPhoto) 1 else 0}"
-                    
-                    val tempQrBitmap = remember(tempShareUrl) {
-                        try {
-                            QRCodeGenerator.generateQRCode(tempShareUrl, 400)
-                        } catch (e: Exception) {
-                            null
-                        }
-                    }
-                    
-                    if (tempQrBitmap != null) {
-                        Image(
-                            bitmap = tempQrBitmap.asImageBitmap(),
-                            contentDescription = "Temporary Share QR",
-                            modifier = Modifier
-                                .size(200.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White)
-                                .padding(8.dp)
-                        )
-                    } else {
-                        CircularProgressIndicator()
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = tempShareUrl,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = { showTempLinkQrDialog = false }) {
-                    Text("Fermer")
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(24.dp)
+        com.example.ui.components.WebVerificationPortalDialog(
+            memberId = memberId,
+            fullName = fullName,
+            verificationStatus = verificationStatus,
+            communityAffiliation = communityAffiliation,
+            dateOfBirth = dateOfBirth,
+            residency = residency,
+            photoBase64 = null,
+            language = language,
+            onDismiss = { showTempLinkQrDialog = false }
         )
     }
 }

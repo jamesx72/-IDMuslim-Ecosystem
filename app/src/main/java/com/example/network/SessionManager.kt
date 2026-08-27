@@ -490,4 +490,45 @@ class SessionManager(context: Context) {
     fun getLastLocalBackupSize(): Long {
         return prefs.getLong("KEY_LAST_LOCAL_BACKUP_SIZE", 0L)
     }
+
+    // Solar-Adaptive Theme Methods (Sunrise/Sunset automated switcher)
+    fun saveSolarAdaptiveThemeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("KEY_SOLAR_ADAPTIVE_THEME_ENABLED", enabled).apply()
+    }
+
+    fun isSolarAdaptiveThemeEnabled(): Boolean {
+        return prefs.getBoolean("KEY_SOLAR_ADAPTIVE_THEME_ENABLED", true)
+    }
+
+    fun saveSolarSimulationOverride(override: String) {
+        prefs.edit().putString("KEY_SOLAR_SIMULATION_OVERRIDE", override).apply()
+    }
+
+    fun getSolarSimulationOverride(): String {
+        return prefs.getString("KEY_SOLAR_SIMULATION_OVERRIDE", "AUTO") ?: "AUTO"
+    }
+
+    fun saveLastSolarLocation(lat: Double, lng: Double, city: String? = null) {
+        prefs.edit()
+            .putFloat("KEY_SOLAR_LAT", lat.toFloat())
+            .putFloat("KEY_SOLAR_LNG", lng.toFloat())
+            .putString("KEY_SOLAR_CITY", city ?: "")
+            .apply()
+    }
+
+    fun getLastSolarLocation(): Triple<Double, Double, String?> {
+        val lat = prefs.getFloat("KEY_SOLAR_LAT", 48.8566f).toDouble()
+        val lng = prefs.getFloat("KEY_SOLAR_LNG", 2.3522f).toDouble()
+        val city = prefs.getString("KEY_SOLAR_CITY", null)?.ifBlank { null }
+        return Triple(lat, lng, city)
+    }
+
+    // Card Details Accessibility Font Scaling
+    fun saveCardFontScale(scale: Float) {
+        prefs.edit().putFloat("KEY_CARD_FONT_SCALE", scale).apply()
+    }
+
+    fun getCardFontScale(): Float {
+        return prefs.getFloat("KEY_CARD_FONT_SCALE", 1.0f)
+    }
 }

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Nfc
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,31 +44,33 @@ fun VerificationTokenDialog(
     var qrBitmapState by remember { mutableStateOf<Bitmap?>(null) }
     var tokenSignature by remember { mutableStateOf("") }
 
+    var currentPortalUrl by remember { mutableStateOf("") }
+
     fun generateNewToken() {
-        val timestamp = System.currentTimeMillis() / 1000
-        val vStat = verificationStatus.ifEmpty { "UNVERIFIED" }
-        val payloadRaw = "$memberId-$vStat-$fullName-$timestamp"
-        
-        tokenSignature = try {
-            val bytes = MessageDigest.getInstance("SHA-256").digest(payloadRaw.toByteArray())
-            bytes.joinToString("") { "%02x".format(it) }.take(24)
-        } catch (e: Exception) {
-            "sig-failed"
-        }
+        val portal = com.example.utils.VerificationPortalHelper.generatePortalUrl(
+            memberId = memberId,
+            fullName = fullName,
+            verificationStatus = verificationStatus,
+            durationSeconds = 30L
+        )
+        currentPortalUrl = portal.url
+        tokenSignature = portal.signature
 
         val securePayload = """
             {
               "id": "$memberId",
-              "status": "$vStat",
+              "status": "${verificationStatus.ifEmpty { "UNVERIFIED" }}",
               "name": "$fullName",
-              "issuedAt": $timestamp,
+              "issuedAt": ${portal.payload.issuedAtSeconds},
               "expiresIn": 30,
               "sig": "$tokenSignature",
+              "portalUrl": "${portal.url}",
               "alg": "SHA-256"
             }
         """.trimIndent()
 
-        qrBitmapState = QRCodeGenerator.generateQRCode(securePayload, 512)
+        // Encode the unique web portal URL in the QR code so web browsers and third party cameras open the verification portal directly
+        qrBitmapState = QRCodeGenerator.generateQRCode(portal.url, 512)
         com.example.nfc.ProfileApduService.activePayload = securePayload
     }
 
@@ -210,7 +214,44 @@ fun VerificationTokenDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Web Portal URL Display & Copy
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                        val clip = android.content.ClipData.newPlainText("IDMuslim Portal URL", currentPortalUrl)
+                        clipboard?.setPrimaryClip(clip)
+                        android.widget.Toast.makeText(ctx, "Lien du portail web copié !", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Portail Web : verify.idmuslim.org/portal",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Security notice
                 Row(
@@ -247,9 +288,9 @@ fun VerificationTokenDialog(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Jeton à usage unique protégé par SHA-256",
+                        text = "Accès tiers via navigateur web sans installer l'application",
                         style = MaterialTheme.typography.bodySmall,
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

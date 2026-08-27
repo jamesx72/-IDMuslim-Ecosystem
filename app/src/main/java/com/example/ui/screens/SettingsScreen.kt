@@ -1,5 +1,28 @@
 package com.example.ui.screens
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.sp
+import com.example.utils.HapticHelper
+import com.example.ui.components.CardVisualThemes
+import com.example.ui.components.IslamicCardPatternBackground
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -44,6 +67,15 @@ fun SettingsScreen(
     onNavigateToEditProfile: () -> Unit = {}
 ) {
     val language by viewModel.language.collectAsState()
+    val cardTheme by viewModel.cardTheme.collectAsState()
+    val cardFontScale by viewModel.cardFontScale.collectAsState()
+    val isSolarAdaptiveTheme by viewModel.isSolarAdaptiveTheme.collectAsState()
+    val solarSimulationOverride by viewModel.solarSimulationOverride.collectAsState()
+    val solarState by viewModel.solarState.collectAsState()
+    val cachedUserProfile by viewModel.cachedUserProfile.collectAsState()
+    val profileFullName by viewModel.profileFullName.collectAsState()
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val prayerNotifications by viewModel.prayerNotifications.collectAsState()
     val prayerCalculationMethod by viewModel.prayerCalculationMethod.collectAsState()
     val privacyMode by viewModel.privacyMode.collectAsState()
@@ -704,9 +736,586 @@ fun SettingsScreen(
                 )
             }
 
-            // Theme Section
+            // ==========================================
+            // DIGITAL ID CARD VISUAL THEME & ISLAMIC ART MOTIFS
+            // ==========================================
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Palette,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = Translations.get(language, "card_theme_customization_title"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
             Text(
-                text = Translations.get(language, "card_theme"),
+                text = Translations.get(language, "card_theme_customization_desc"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Interactive Live Mini Card Preview
+            val effectivePreviewThemeId = if (isSolarAdaptiveTheme) solarState.adaptedThemeId else cardTheme
+            val activeVisualTheme = remember(effectivePreviewThemeId) { CardVisualThemes.getThemeById(effectivePreviewThemeId) }
+            val effectiveGradientColors = if (isSolarAdaptiveTheme) solarState.adaptedGradientColors else activeVisualTheme.gradientColors
+            val effectiveAccentColor = if (isSolarAdaptiveTheme) solarState.adaptedAccentColor else activeVisualTheme.accentColor
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(145.dp)
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = effectiveGradientColors
+                            )
+                        )
+                ) {
+                    // Cultural Pattern Background Canvas
+                    IslamicCardPatternBackground(
+                        themeIndex = effectivePreviewThemeId,
+                        modifier = Modifier.fillMaxSize(),
+                        alphaMultiplier = 1.0f
+                    )
+
+                    // Card Content Overlay
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Top row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = effectiveAccentColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "IDMUSLIM CARD",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+
+                            // Motif Badge Chip
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = effectiveAccentColor.copy(alpha = 0.25f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, effectiveAccentColor.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSolarAdaptiveTheme) solarState.phaseIcon else activeVisualTheme.patternIcon,
+                                        contentDescription = null,
+                                        tint = effectiveAccentColor,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isSolarAdaptiveTheme) solarState.phaseDisplayName.uppercase() else activeVisualTheme.badgeLabel.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = effectiveAccentColor,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Middle: Shahada watermark
+                        val previewShahadaSize = (11f * cardFontScale).coerceIn(9f, 13f).sp
+                        Text(
+                            text = Translations.get(language, "shahada_text"),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = previewShahadaSize),
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Bottom row
+                        val previewDisplayName = profileFullName?.ifBlank { null } ?: cachedUserProfile?.fullName ?: Translations.get(language, "user")
+                        val previewMemberId = cachedUserProfile?.idNumber?.ifBlank { null } ?: "IDM-7860-9942"
+                        val previewNameSize = (14f * cardFontScale).coerceIn(12f, 17f).sp
+                        val previewIdSize = (9f * cardFontScale).coerceIn(7.5f, 12f).sp
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            Column {
+                                Text(
+                                    text = previewDisplayName.uppercase(),
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = previewNameSize),
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = previewMemberId,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = previewIdSize),
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color = effectiveAccentColor
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color.White.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = if (isSolarAdaptiveTheme) "SOLAR ACTIVE" else "CHIP SECURED",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Automated Solar-Adaptive Theme Switcher Horizon Control Card
+            com.example.ui.components.SolarHorizonCard(
+                solarState = solarState,
+                isSolarAdaptiveEnabled = isSolarAdaptiveTheme,
+                activeOverride = solarSimulationOverride,
+                onToggleAdaptive = { enabled ->
+                    viewModel.updateSolarAdaptiveTheme(enabled)
+                },
+                onSelectOverride = { phaseKey ->
+                    viewModel.updateSolarSimulationOverride(phaseKey)
+                },
+                language = language,
+                modifier = Modifier.padding(bottom = 20.dp)
+            )
+
+            // Motif Theme Selection List
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CardVisualThemes.themes.forEach { theme ->
+                    val isSelected = cardTheme == theme.id
+                    val themeName = Translations.get(language, theme.nameKey).ifBlank { theme.defaultName }
+                    val themeDesc = Translations.get(language, theme.descKey).ifBlank { theme.defaultDesc }
+
+                    Surface(
+                        onClick = {
+                            HapticHelper.performClick(context, haptic)
+                            viewModel.updateCardTheme(theme.id)
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surfaceVariant,
+                        border = if (isSelected) {
+                            androidx.compose.foundation.BorderStroke(2.dp, theme.accentColor)
+                        } else {
+                            androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Left Icon Box with gradient preview background
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        brush = Brush.linearGradient(theme.gradientColors)
+                                    )
+                                    .border(1.dp, theme.accentColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = theme.patternIcon,
+                                    contentDescription = themeName,
+                                    tint = theme.accentColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Text details
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = themeName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = theme.accentColor.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = theme.badgeLabel,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 9.sp,
+                                            color = theme.accentColor,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Text(
+                                    text = themeDesc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Color swatch dots
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    theme.gradientColors.forEach { c ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(12.dp)
+                                                .clip(CircleShape)
+                                                .background(c)
+                                                .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Selection Indicator
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Selected",
+                                    tint = theme.accentColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                 )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // ID CARD ACCESSIBILITY & FONT SCALE
+            // ==========================================
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FormatSize,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = Translations.get(language, "card_accessibility_title"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                text = Translations.get(language, "card_accessibility_desc"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Header with Live Percentage Badge & Reset button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.TextFields,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "${(cardFontScale * 100).toInt()}%",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        if (kotlin.math.abs(cardFontScale - 1.0f) > 0.01f) {
+                            TextButton(
+                                onClick = {
+                                    HapticHelper.performClick(context, haptic)
+                                    viewModel.updateCardFontScale(1.0f)
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RestartAlt,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = Translations.get(language, "font_scale_reset"),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Live Typography Preview Bubble inside Card
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            val previewLabelSize = (8f * cardFontScale).coerceIn(7f, 11f).sp
+                            val previewValSize = (13f * cardFontScale).coerceIn(10.5f, 17f).sp
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                    Text(
+                                        text = Translations.get(language, "full_name").uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = previewLabelSize,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = (profileFullName?.ifBlank { null } ?: "Zayd Ibn Ali").uppercase(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = (15f * cardFontScale).coerceIn(12f, 18f).sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = Translations.get(language, "id_number").uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = previewLabelSize,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = cachedUserProfile?.idNumber?.ifBlank { null } ?: "IDM-7860-9942",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = previewValSize,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                    Text(
+                                        text = Translations.get(language, "residence").uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = previewLabelSize,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Paris, France",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = previewValSize,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = Translations.get(language, "expiry_date").uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = previewLabelSize,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "31/12/2030",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = previewValSize,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Slider Control
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "A",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Slider(
+                            value = cardFontScale,
+                            onValueChange = { newValue ->
+                                val rounded = (kotlin.math.round(newValue * 20f) / 20f).coerceIn(0.75f, 1.40f)
+                                if (rounded != cardFontScale) {
+                                    HapticHelper.performClick(context, haptic)
+                                    viewModel.updateCardFontScale(rounded)
+                                }
+                            },
+                            valueRange = 0.75f..1.40f,
+                            steps = 12,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "A",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Preset Buttons Grid
+                    val presets = listOf(
+                        0.85f to Translations.get(language, "font_scale_compact"),
+                        1.00f to Translations.get(language, "font_scale_standard"),
+                        1.15f to Translations.get(language, "font_scale_large"),
+                        1.30f to Translations.get(language, "font_scale_extra_large")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        presets.forEach { (scale, label) ->
+                            val isSelected = kotlin.math.abs(cardFontScale - scale) < 0.04f
+                            Surface(
+                                onClick = {
+                                    HapticHelper.performClick(context, haptic)
+                                    viewModel.updateCardFontScale(scale)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${(scale * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 9.sp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // APP INTERFACE THEME (LIGHT / DARK / SYSTEM)
+            // ==========================================
+            Text(
+                text = Translations.get(language, "theme_choice"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -726,22 +1335,79 @@ fun SettingsScreen(
                         Text(Translations.get(language, "theme_choice"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                     }
 
+                    // Interactive Crossfade Theme Preview
+                    Crossfade(
+                        targetState = currentTheme,
+                        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+                        label = "theme_card_crossfade_preview"
+                    ) { theme ->
+                        val previewBg = when (theme) {
+                            "dark" -> androidx.compose.ui.graphics.Color(0xFF1E293B)
+                            "light" -> androidx.compose.ui.graphics.Color(0xFFF1F5F9)
+                            else -> MaterialTheme.colorScheme.surface
+                        }
+                        val previewContentColor = when (theme) {
+                            "dark" -> androidx.compose.ui.graphics.Color(0xFFF8FAFC)
+                            "light" -> androidx.compose.ui.graphics.Color(0xFF0F172A)
+                            else -> MaterialTheme.colorScheme.onSurface
+                        }
+                        val previewLabel = when (theme) {
+                            "dark" -> "Mode Sombre Actif"
+                            "light" -> "Mode Clair Actif"
+                            else -> "Mode Système (Adaptatif)"
+                        }
+                        val previewIcon = when (theme) {
+                            "dark" -> Icons.Default.DarkMode
+                            "light" -> Icons.Default.LightMode
+                            else -> Icons.Default.BrightnessAuto
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = previewBg,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = previewIcon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = previewLabel,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = previewContentColor
+                                )
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         ThemeOption(
                             label = Translations.get(language, "theme_light"),
+                            icon = Icons.Default.LightMode,
                             selected = currentTheme == "light",
                             onClick = { viewModel.updateDarkTheme("light") }
                         )
                         ThemeOption(
                             label = Translations.get(language, "theme_dark"),
+                            icon = Icons.Default.DarkMode,
                             selected = currentTheme == "dark",
                             onClick = { viewModel.updateDarkTheme("dark") }
                         )
                         ThemeOption(
                             label = Translations.get(language, "theme_system"),
+                            icon = Icons.Default.BrightnessAuto,
                             selected = currentTheme == "system",
                             onClick = { viewModel.updateDarkTheme("system") }
                         )
@@ -927,7 +1593,12 @@ fun LanguageOption(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ThemeOption(label: String, selected: Boolean, onClick: () -> Unit) {
+fun ThemeOption(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null
+) {
     val animatedBg by androidx.compose.animation.animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         animationSpec = androidx.compose.animation.core.tween(300),
@@ -950,13 +1621,15 @@ fun ThemeOption(label: String, selected: Boolean, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
-            RadioButton(
-                selected = selected,
-                onClick = onClick,
-                colors = RadioButtonDefaults.colors(
-                    selectedColor = MaterialTheme.colorScheme.primary
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
                 )
-            )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodySmall,

@@ -119,23 +119,78 @@ fun animateColorScheme(
     )
 }
 
+val LocalSolarState = androidx.compose.runtime.compositionLocalOf<com.example.utils.SolarState?> { null }
+
 @Composable
 fun IDMuslimTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // We disable dynamic color to preserve the brand theme
     dynamicColor: Boolean = false,
     animateTransitions: Boolean = true,
+    solarAdaptive: Boolean = false,
+    solarState: com.example.utils.SolarState? = null,
     content: @Composable () -> Unit,
 ) {
-    val targetColorScheme =
-        when {
-            dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                val context = LocalContext.current
-                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            }
-            darkTheme -> DarkColorScheme
-            else -> LightColorScheme
+    val baseScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
+
+    val targetColorScheme = if (solarAdaptive && solarState != null) {
+        val accent = solarState.adaptedAccentColor
+        when (solarState.phase) {
+            com.example.utils.SolarPhase.SUNSET_EVENING -> {
+                // Warm sunset twilight palette with golden amber accents
+                DarkColorScheme.copy(
+                    primary = accent,
+                    primaryContainer = Color(0xFF431D0E),
+                    onPrimaryContainer = Color(0xFFFFEDD5),
+                    secondary = Color(0xFFFBBF24),
+                    background = Color(0xFF180E09),
+                    surface = Color(0xFF22150D),
+                    surfaceVariant = Color(0xFF331F14),
+                    outline = Color(0xFF6B452D)
+                )
+            }
+            com.example.utils.SolarPhase.DAWN -> {
+                // Soft dawn horizon palette with fresh sunrise blush
+                LightColorScheme.copy(
+                    primary = accent,
+                    primaryContainer = Color(0xFFD1FAE5),
+                    secondary = Color(0xFFF59E0B),
+                    background = Color(0xFFF9FAF8),
+                    surface = Color(0xFFFFFFFF),
+                    surfaceVariant = Color(0xFFEFF4F0),
+                    outline = Color(0xFF94A3B8)
+                )
+            }
+            com.example.utils.SolarPhase.DAY -> {
+                // Crisp daylight palette with luminous emerald & sky highlights
+                LightColorScheme.copy(
+                    primary = accent,
+                    secondary = Color(0xFF0284C7),
+                    background = backgroundLight,
+                    surface = surfaceLight
+                )
+            }
+            com.example.utils.SolarPhase.NIGHT -> {
+                // Deep celestial night palette with stars/moon indigo highlights
+                DarkColorScheme.copy(
+                    primary = accent,
+                    secondary = Color(0xFF818CF8),
+                    background = Color(0xFF090D16),
+                    surface = Color(0xFF0F172A),
+                    surfaceVariant = Color(0xFF1E293B)
+                )
+            }
+        }
+    } else {
+        baseScheme
+    }
 
     val animatedColorScheme = if (animateTransitions) {
         animateColorScheme(targetColorScheme)
@@ -143,5 +198,9 @@ fun IDMuslimTheme(
         targetColorScheme
     }
 
-    MaterialTheme(colorScheme = animatedColorScheme, typography = Typography, content = content)
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalSolarState provides solarState
+    ) {
+        MaterialTheme(colorScheme = animatedColorScheme, typography = Typography, content = content)
+    }
 }

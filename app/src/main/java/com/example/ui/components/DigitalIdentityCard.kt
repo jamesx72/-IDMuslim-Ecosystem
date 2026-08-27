@@ -70,11 +70,15 @@ fun DigitalIdentityCard(
 
     val primaryColor = MaterialTheme.colorScheme.primary.toArgb()
 
-    val qrBitmap = remember(userId, primaryColor) {
+    val qrBitmap = remember(userId, name, isVerified, primaryColor) {
         try {
-            val payload = "https://idmuslim.org/verify/$userId"
+            val portalUrl = com.example.utils.VerificationPortalHelper.getOrCreateActivePortal(
+                memberId = userId,
+                fullName = name,
+                verificationStatus = if (isVerified) "VERIFIED" else "UNVERIFIED"
+            ).url
             val hints = mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.H)
-            val bitMatrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 200, 200, hints)
+            val bitMatrix = QRCodeWriter().encode(portalUrl, BarcodeFormat.QR_CODE, 200, 200, hints)
             val bitmap = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
             for (x in 0 until 200) {
                 for (y in 0 until 200) {

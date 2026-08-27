@@ -92,6 +92,7 @@ fun EditProfileScreen(
                 android.media.ExifInterface.ORIENTATION_UNDEFINED
             }
             
+            @Suppress("DEPRECATION")
             val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 val source = android.graphics.ImageDecoder.createSource(resolver, uri)
                 android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->

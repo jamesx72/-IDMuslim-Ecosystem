@@ -1,6 +1,11 @@
 package com.example.ui
 
 import android.app.Application
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Event
@@ -88,10 +93,22 @@ fun IDMuslimApp(startRoute: String = "auth") {
 
     val language by eventViewModel.language.collectAsState()
     val darkThemePref by eventViewModel.darkTheme.collectAsState(initial = "system")
-    val useDarkTheme = when (darkThemePref) {
-        "dark" -> true
-        "light" -> false
-        else -> androidx.compose.foundation.isSystemInDarkTheme()
+    val isSolarAdaptive by eventViewModel.isSolarAdaptiveTheme.collectAsState()
+    val solarState by eventViewModel.solarState.collectAsState()
+
+    val useDarkTheme = if (isSolarAdaptive) {
+        when (solarState.phase) {
+            com.example.utils.SolarPhase.NIGHT -> true
+            com.example.utils.SolarPhase.SUNSET_EVENING -> true
+            com.example.utils.SolarPhase.DAWN -> false
+            com.example.utils.SolarPhase.DAY -> false
+        }
+    } else {
+        when (darkThemePref) {
+            "dark" -> true
+            "light" -> false
+            else -> androidx.compose.foundation.isSystemInDarkTheme()
+        }
     }
 
     val syncConflict by eventViewModel.syncConflict.collectAsState()
@@ -113,162 +130,178 @@ fun IDMuslimApp(startRoute: String = "auth") {
         )
     }
 
-    com.example.ui.theme.IDMuslimTheme(darkTheme = useDarkTheme) {
-        Scaffold(
-        bottomBar = {
-            if (showBottomNav) {
-                NavigationBar(
-                    containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface,
-                    contentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
-                ) {
-                    bottomNavItems.forEach { screen ->
-                        NavigationBarItem(
-                            colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                                selectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                                selectedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = androidx.compose.ui.graphics.Color.Gray,
-                                unselectedTextColor = androidx.compose.ui.graphics.Color.Gray,
-                                indicatorColor = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer
-                            ),
-                            icon = { Icon(screen.icon!!, contentDescription = Translations.get(language, "nav_" + screen.route)) },
-                            label = { Text(Translations.get(language, "nav_" + screen.route)) },
-                            selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+    val themeAnimationKey = if (isSolarAdaptive) "${solarState.phase.name}_$useDarkTheme" else "$useDarkTheme"
+
+    Crossfade(
+        targetState = themeAnimationKey,
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "theme_crossfade_root"
+    ) { _ ->
+        com.example.ui.theme.IDMuslimTheme(
+            darkTheme = useDarkTheme,
+            solarAdaptive = isSolarAdaptive,
+            solarState = solarState
+        ) {
+            Scaffold(
+                bottomBar = {
+                    if (showBottomNav) {
+                        NavigationBar(
+                            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                            contentColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
+                        ) {
+                            bottomNavItems.forEach { screen ->
+                                NavigationBarItem(
+                                    colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                                        selectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                                        unselectedIconColor = androidx.compose.ui.graphics.Color.Gray,
+                                        unselectedTextColor = androidx.compose.ui.graphics.Color.Gray,
+                                        indicatorColor = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer
+                                    ),
+                                    icon = { Icon(screen.icon!!, contentDescription = Translations.get(language, "nav_" + screen.route)) },
+                                    label = { Text(Translations.get(language, "nav_" + screen.route)) },
+                                    selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                                    onClick = {
+                                        navController.navigate(screen.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                )
+                            }
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                NavHost(
+                    navController = navController,
+                    startDestination = Screen.Splash.route,
+                    modifier = Modifier.padding(innerPadding),
+                    enterTransition = { fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing)) },
+                    exitTransition = { fadeOut(animationSpec = tween(300, easing = FastOutSlowInEasing)) },
+                    popEnterTransition = { fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing)) },
+                    popExitTransition = { fadeOut(animationSpec = tween(300, easing = FastOutSlowInEasing)) }
+                ) {
+                    composable(Screen.Splash.route) {
+                        SplashScreen(onSplashFinished = {
+                            if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                                val activity = context as? androidx.fragment.app.FragmentActivity
+                                if (activity != null && com.example.security.BiometricHelper.canAuthenticate(context)) {
+                                    com.example.security.BiometricHelper.authenticate(
+                                        activity = activity,
+                                        title = "IDMuslim",
+                                        subtitle = "Authenticate to open",
+                                        onSuccess = {
+                                            navController.navigate(Screen.Profile.route) {
+                                                popUpTo(Screen.Splash.route) { inclusive = true }
+                                            }
+                                        },
+                                        onError = { error ->
+                                            android.widget.Toast.makeText(context, "Authentication canceled.", android.widget.Toast.LENGTH_SHORT).show()
+                                            // Fallback to Auth on cancellation or error
+                                            navController.navigate(Screen.Auth.route) {
+                                                popUpTo(Screen.Splash.route) { inclusive = true }
+                                            }
+                                        }
+                                    )
+                                } else {
+                                    navController.navigate(Screen.Profile.route) {
+                                        popUpTo(Screen.Splash.route) { inclusive = true }
+                                    }
+                                }
+                            } else {
+                                navController.navigate(Screen.Auth.route) {
+                                    popUpTo(Screen.Splash.route) { inclusive = true }
                                 }
                             }
+                        })
+                    }
+                    composable(Screen.Auth.route) {
+                        AuthScreen(language = language, onAuthSuccess = {
+                            navController.navigate(Screen.Profile.route) {
+                                popUpTo(Screen.Auth.route) { inclusive = true }
+                            }
+                        })
+                    }
+                    composable(Screen.Profile.route) {
+                        ProfileScreen(
+                            viewModel = eventViewModel,
+                            onLogout = {
+                                navController.navigate(Screen.Auth.route) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            },
+                            onNavigateToSettings = {
+                                navController.navigate(Screen.Settings.route)
+                            },
+                            onNavigateToEditProfile = {
+                                navController.navigate(Screen.EditProfile.route)
+                            },
+                            onNavigateToDocumentScanner = {
+                                navController.navigate(Screen.DocumentScanner.route)
+                            }
+                        )
+                    }
+                    composable(Screen.EditProfile.route) {
+                        com.example.ui.screens.EditProfileScreen(
+                            viewModel = eventViewModel,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable(Screen.Scanner.route) {
+                        ScannerScreen(viewModel = eventViewModel)
+                    }
+                    composable(Screen.DocumentScanner.route) {
+                        DocumentScannerScreen(
+                            viewModel = eventViewModel,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable(Screen.Forum.route) {
+                        ForumScreen(viewModel = eventViewModel)
+                    }
+                    composable(Screen.QA.route) {
+                        QAScreen()
+                    }
+                    composable(Screen.Settings.route) {
+                        SettingsScreen(
+                            viewModel = eventViewModel,
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToEditProfile = { navController.navigate(Screen.EditProfile.route) }
+                        )
+                    }
+                    composable(Screen.Events.route) {
+                        EventsScreen(
+                            viewModel = eventViewModel,
+                            onNavigateToCreate = { navController.navigate(Screen.CreateEvent.route) },
+                            onNavigateToDetail = { eventId -> navController.navigate(Screen.EventDetail.createRoute(eventId)) }
+                        )
+                    }
+                    composable(Screen.Admin.route) {
+                        AdminDashboardScreen(viewModel = eventViewModel)
+                    }
+                    composable(Screen.CreateEvent.route) {
+                        CreateEventScreen(
+                            viewModel = eventViewModel,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable(
+                        route = Screen.EventDetail.route,
+                        arguments = listOf(navArgument("eventId") { type = NavType.IntType })
+                    ) { backStackEntry ->
+                        val eventId = backStackEntry.arguments?.getInt("eventId") ?: return@composable
+                        EventDetailScreen(
+                            eventId = eventId,
+                            viewModel = eventViewModel,
+                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
                 }
             }
         }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Splash.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable(Screen.Splash.route) {
-                SplashScreen(onSplashFinished = {
-                    if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
-                        val activity = context as? androidx.fragment.app.FragmentActivity
-                        if (activity != null && com.example.security.BiometricHelper.canAuthenticate(context)) {
-                            com.example.security.BiometricHelper.authenticate(
-                                activity = activity,
-                                title = "IDMuslim",
-                                subtitle = "Authenticate to open",
-                                onSuccess = {
-                                    navController.navigate(Screen.Profile.route) {
-                                        popUpTo(Screen.Splash.route) { inclusive = true }
-                                    }
-                                },
-                                onError = { error ->
-                                    android.widget.Toast.makeText(context, "Authentication canceled.", android.widget.Toast.LENGTH_SHORT).show()
-                                    // Fallback to Auth on cancellation or error
-                                    navController.navigate(Screen.Auth.route) {
-                                        popUpTo(Screen.Splash.route) { inclusive = true }
-                                    }
-                                }
-                            )
-                        } else {
-                            navController.navigate(Screen.Profile.route) {
-                                popUpTo(Screen.Splash.route) { inclusive = true }
-                            }
-                        }
-                    } else {
-                        navController.navigate(Screen.Auth.route) {
-                            popUpTo(Screen.Splash.route) { inclusive = true }
-                        }
-                    }
-                })
-            }
-            composable(Screen.Auth.route) {
-                AuthScreen(language = language, onAuthSuccess = {
-                    navController.navigate(Screen.Profile.route) {
-                        popUpTo(Screen.Auth.route) { inclusive = true }
-                    }
-                })
-            }
-            composable(Screen.Profile.route) {
-                ProfileScreen(
-                    viewModel = eventViewModel,
-                    onLogout = {
-                        navController.navigate(Screen.Auth.route) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    },
-                    onNavigateToSettings = {
-                        navController.navigate(Screen.Settings.route)
-                    },
-                    onNavigateToEditProfile = {
-                        navController.navigate(Screen.EditProfile.route)
-                    },
-                    onNavigateToDocumentScanner = {
-                        navController.navigate(Screen.DocumentScanner.route)
-                    }
-                )
-            }
-            composable(Screen.EditProfile.route) {
-                com.example.ui.screens.EditProfileScreen(
-                    viewModel = eventViewModel,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
-            composable(Screen.Scanner.route) {
-                ScannerScreen(viewModel = eventViewModel)
-            }
-            composable(Screen.DocumentScanner.route) {
-                DocumentScannerScreen(
-                    viewModel = eventViewModel,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
-            composable(Screen.Forum.route) {
-                ForumScreen(viewModel = eventViewModel)
-            }
-            composable(Screen.QA.route) {
-                QAScreen()
-            }
-            composable(Screen.Settings.route) {
-                SettingsScreen(
-                    viewModel = eventViewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToEditProfile = { navController.navigate(Screen.EditProfile.route) }
-                )
-            }
-            composable(Screen.Events.route) {
-                EventsScreen(
-                    viewModel = eventViewModel,
-                    onNavigateToCreate = { navController.navigate(Screen.CreateEvent.route) },
-                    onNavigateToDetail = { eventId -> navController.navigate(Screen.EventDetail.createRoute(eventId)) }
-                )
-            }
-            composable(Screen.Admin.route) {
-                AdminDashboardScreen(viewModel = eventViewModel)
-            }
-            composable(Screen.CreateEvent.route) {
-                CreateEventScreen(
-                    viewModel = eventViewModel,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
-            composable(
-                route = Screen.EventDetail.route,
-                arguments = listOf(navArgument("eventId") { type = NavType.IntType })
-            ) { backStackEntry ->
-                val eventId = backStackEntry.arguments?.getInt("eventId") ?: return@composable
-                EventDetailScreen(
-                    eventId = eventId,
-                    viewModel = eventViewModel,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
-        }
     }
-}
 }

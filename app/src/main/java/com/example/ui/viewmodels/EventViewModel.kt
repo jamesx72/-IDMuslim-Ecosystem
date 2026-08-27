@@ -79,6 +79,31 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _cardTheme = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getCardTheme())
     val cardTheme: StateFlow<Int> = _cardTheme.asStateFlow()
 
+    private val _cardFontScale = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getCardFontScale())
+    val cardFontScale: StateFlow<Float> = _cardFontScale.asStateFlow()
+
+    private val _isSolarAdaptiveTheme = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isSolarAdaptiveThemeEnabled())
+    val isSolarAdaptiveTheme: StateFlow<Boolean> = _isSolarAdaptiveTheme.asStateFlow()
+
+    private val _solarSimulationOverride = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getSolarSimulationOverride())
+    val solarSimulationOverride: StateFlow<String> = _solarSimulationOverride.asStateFlow()
+
+    private var cachedAladhanTimings: com.example.data.Timings? = null
+
+    private val _solarState = MutableStateFlow(
+        run {
+            val (lat, lng, city) = com.example.network.ApiClient.getSessionManager().getLastSolarLocation()
+            com.example.utils.SolarThemeHelper.computeSolarState(
+                latitude = lat,
+                longitude = lng,
+                locationName = city ?: "Position Locale",
+                aladhanTimings = null,
+                overrideSimulation = com.example.network.ApiClient.getSessionManager().getSolarSimulationOverride()
+            )
+        }
+    )
+    val solarState: StateFlow<com.example.utils.SolarState> = _solarState.asStateFlow()
+
     private val _language = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getLanguage())
     val language: StateFlow<String> = _language.asStateFlow()
 
@@ -328,6 +353,14 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         refreshLocalBackupList(application)
+
+        // Solar cycle background ticker (updates solar state and sunrise/sunset progression every 30 seconds)
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                refreshSolarState()
+            }
+        }
     }
 
     fun createCommunityPost(title: String, content: String, type: String, communityName: String) {
@@ -1203,6 +1236,45 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     fun updateCardTheme(themeIndex: Int) {
         com.example.network.ApiClient.getSessionManager().saveCardTheme(themeIndex)
         _cardTheme.value = themeIndex
+    }
+
+    fun updateCardFontScale(scale: Float) {
+        val boundedScale = scale.coerceIn(0.75f, 1.40f)
+        com.example.network.ApiClient.getSessionManager().saveCardFontScale(boundedScale)
+        _cardFontScale.value = boundedScale
+    }
+
+    fun updateSolarAdaptiveTheme(enabled: Boolean) {
+        com.example.network.ApiClient.getSessionManager().saveSolarAdaptiveThemeEnabled(enabled)
+        _isSolarAdaptiveTheme.value = enabled
+        refreshSolarState()
+    }
+
+    fun updateSolarSimulationOverride(override: String) {
+        com.example.network.ApiClient.getSessionManager().saveSolarSimulationOverride(override)
+        _solarSimulationOverride.value = override
+        refreshSolarState()
+    }
+
+    fun updateSolarLocation(lat: Double, lng: Double, city: String? = null) {
+        com.example.network.ApiClient.getSessionManager().saveLastSolarLocation(lat, lng, city)
+        refreshSolarState()
+    }
+
+    fun refreshSolarState(aladhanTimings: com.example.data.Timings? = null) {
+        if (aladhanTimings != null) {
+            cachedAladhanTimings = aladhanTimings
+        }
+        val (lat, lng, city) = com.example.network.ApiClient.getSessionManager().getLastSolarLocation()
+        val override = _solarSimulationOverride.value
+        val newState = com.example.utils.SolarThemeHelper.computeSolarState(
+            latitude = lat,
+            longitude = lng,
+            locationName = city ?: "Position Locale",
+            aladhanTimings = cachedAladhanTimings,
+            overrideSimulation = override
+        )
+        _solarState.value = newState
     }
 
     fun updateLanguage(lang: String) {

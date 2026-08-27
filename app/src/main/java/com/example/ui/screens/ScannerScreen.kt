@@ -128,6 +128,33 @@ fun ScannerScreen(viewModel: EventViewModel? = null) {
     fun parseAndVerifyPayload(rawPayload: String): VerificationResult {
         try {
             val trimmed = rawPayload.trim()
+
+            // Check if it's a web verification portal URL or token
+            val parsedPortal = com.example.utils.VerificationPortalHelper.parseVerificationUrl(trimmed)
+            if (parsedPortal != null) {
+                val tier = when {
+                    parsedPortal.status.contains("Émeraude", ignoreCase = true) || parsedPortal.status.contains("Premium", ignoreCase = true) || parsedPortal.status.contains("LEVEL 3", ignoreCase = true) -> "Niveau 3 - Émeraude"
+                    parsedPortal.status.contains("Vérifié", ignoreCase = true) || parsedPortal.status.contains("VERIFIED", ignoreCase = true) -> "Niveau 2 - Argent"
+                    else -> "Niveau 1 - Bronze"
+                }
+
+                return VerificationResult(
+                    isValid = parsedPortal.isValid,
+                    memberId = parsedPortal.memberId,
+                    fullName = parsedPortal.fullName,
+                    status = if (parsedPortal.isExpired) "Jeton Expiré" else parsedPortal.status,
+                    tierLevel = if (parsedPortal.isValid) tier else "Expiré / Invalide",
+                    community = parsedPortal.community.ifEmpty { "Réseau IDMuslim" },
+                    dateOfBirth = parsedPortal.dateOfBirth.ifEmpty { "Certifiée" },
+                    residency = parsedPortal.residency.ifEmpty { "Conforme" },
+                    issuedAt = parsedPortal.issuedAtSeconds,
+                    signature = parsedPortal.signature.ifEmpty { "HMAC-SHA256-AUTHENTICATED" },
+                    securityRemarks = if (parsedPortal.isExpired) "Lien de vérification web expiré. Demandez un nouveau QR code au titulaire." else "Certificat web IDMuslim vérifié en ligne avec succès.",
+                    nfcUid = null,
+                    cryptoHash = "SHA256:${parsedPortal.signature.take(16)}"
+                )
+            }
+
             if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
                 val json = JSONObject(trimmed)
                 val id = json.optString("id", "IDM-00000")
