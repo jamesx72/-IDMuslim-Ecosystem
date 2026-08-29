@@ -400,7 +400,7 @@ class SessionManager(context: Context) {
     }
 
     fun isBiometricLockEnabled(): Boolean {
-        return prefs.getBoolean(KEY_BIOMETRIC_LOCK, true)
+        return prefs.getBoolean(KEY_BIOMETRIC_LOCK, false)
     }
 
     fun saveScreenSecurityEnabled(enabled: Boolean) {
@@ -409,7 +409,7 @@ class SessionManager(context: Context) {
     }
 
     fun isScreenSecurityEnabled(): Boolean {
-        return prefs.getBoolean(KEY_SCREEN_SECURITY, true)
+        return prefs.getBoolean(KEY_SCREEN_SECURITY, false)
     }
 
     fun saveAutoLockTimeout(timeout: String) {

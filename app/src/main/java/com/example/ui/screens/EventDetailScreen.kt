@@ -143,6 +143,37 @@ fun EventDetailScreen(
                     Text(text = event.location, style = MaterialTheme.typography.bodyLarge)
                 }
 
+                if (event.location.isNotBlank()) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val uri = android.net.Uri.parse("geo:0,0?q=${android.net.Uri.encode(event.location)}")
+                            val mapIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                            try {
+                                context.startActivity(mapIntent)
+                            } catch (e: Exception) {
+                                val webUri = android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=${android.net.Uri.encode(event.location)}")
+                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, webUri))
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Itinéraire & Localisation",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {

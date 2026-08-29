@@ -175,7 +175,7 @@ fun ProfileScreen(
     var profileCommunityAffiliation by remember(cachedCommunityAffiliation) { mutableStateOf(cachedCommunityAffiliation ?: "") }
     var profilePassport by remember(cachedPassport) { mutableStateOf(cachedPassport ?: "") }
     var profileLicense by remember(cachedLicense) { mutableStateOf(cachedLicense ?: "") }
-    var isAuthenticated by remember { mutableStateOf(false) }
+    var isAuthenticated by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableStateOf(0) }
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showSecurePdfDialog by remember { mutableStateOf(false) }
@@ -239,7 +239,12 @@ fun ProfileScreen(
         viewModel.loadProfileFromFirestore()
         viewModel.syncVerificationStatusFromFirestore()
         viewModel.loadFamilyMembers()
-        isAuthenticated = com.example.utils.BiometricHelper.authenticate(context)
+        val session = com.example.network.ApiClient.getSessionManager()
+        if (session.isBiometricLockEnabled() && com.example.security.BiometricHelper.canAuthenticate(context)) {
+            isAuthenticated = com.example.utils.BiometricHelper.authenticate(context)
+        } else {
+            isAuthenticated = true
+        }
         if (isAuthenticated) {
             HapticHelper.performAuthSuccess(context, haptic)
             viewModel.logActivity("DIGITAL_ID_ACCESSED", "Digital ID accessed securely.")

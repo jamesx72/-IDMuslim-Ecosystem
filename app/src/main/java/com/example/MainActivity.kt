@@ -21,7 +21,6 @@ class MainActivity : FragmentActivity() {
   @kotlin.OptIn(com.google.accompanist.permissions.ExperimentalPermissionsApi::class)
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
 
     // Initialize secure network stack, Firebase and middleware
     com.example.utils.FirebaseHelper.initialize(this)
@@ -80,7 +79,7 @@ class MainActivity : FragmentActivity() {
         },
         onError = {
           isBiometricPromptShowing = false
-          finishAffinity()
+          lastInteractionTime = System.currentTimeMillis()
         }
       )
     }

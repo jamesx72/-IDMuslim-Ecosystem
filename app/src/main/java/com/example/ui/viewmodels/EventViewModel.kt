@@ -45,6 +45,12 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val communityPostDao: com.example.data.CommunityPostDao
     private val userProfileDao: com.example.data.UserProfileDao
     private val documentDao: com.example.data.DocumentDao
+    private val cachedPlaceDao: com.example.data.CachedPlaceDao
+
+    val communityMapRepository = com.example.data.CommunityMapRepository()
+    val cachedCommunityPlaces: StateFlow<List<com.example.data.CommunityPlace>>
+    private val _isMapPlacesCached = MutableStateFlow(false)
+    val isMapPlacesCached: StateFlow<Boolean> = _isMapPlacesCached.asStateFlow()
 
     val cachedDocuments: StateFlow<List<com.example.data.DocumentEntity>>
     val cachedUserProfile: StateFlow<com.example.data.UserProfileEntity?>
@@ -271,7 +277,16 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         communityPostDao = database.communityPostDao()
         userProfileDao = database.userProfileDao()
         documentDao = database.documentDao()
+        cachedPlaceDao = database.cachedPlaceDao()
         repository = EventRepository(eventDao)
+
+        cachedCommunityPlaces = cachedPlaceDao.getAllCachedPlaces()
+            .map { list -> list.map { it.toCommunityPlace() } }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
 
         cachedDocuments = documentDao.getAllDocuments()
             .map { list -> list.map { it.decrypted(cryptoManager) } }
@@ -353,6 +368,38 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         refreshLocalBackupList(application)
+
+        // Seed and sync offline-first map places (mosques, halal spots, events) into Room
+        viewModelScope.launch {
+            try {
+                val (savedLat, savedLng, _) = com.example.network.ApiClient.getSessionManager().getLastSolarLocation()
+                val userLat = if (savedLat != 0.0) savedLat else com.example.data.CommunityMapRepository.DEFAULT_LAT
+                val userLng = if (savedLng != 0.0) savedLng else com.example.data.CommunityMapRepository.DEFAULT_LNG
+                val existingCount = cachedPlaceDao.getPlaceCount()
+                val currentEvents = repository.allEvents.first()
+                if (existingCount == 0) {
+                    communityMapRepository.syncPlacesWithCache(cachedPlaceDao, userLat, userLng, currentEvents)
+                }
+                _isMapPlacesCached.value = true
+            } catch (e: Throwable) {
+                android.util.Log.e("EventViewModel", "Offline places initialization error: ${e.message}")
+            }
+        }
+
+        // Keep Room places cache synchronized with any event updates
+        viewModelScope.launch {
+            try {
+                repository.allEvents.collect { dbEvents ->
+                    val (savedLat, savedLng, _) = com.example.network.ApiClient.getSessionManager().getLastSolarLocation()
+                    val userLat = if (savedLat != 0.0) savedLat else com.example.data.CommunityMapRepository.DEFAULT_LAT
+                    val userLng = if (savedLng != 0.0) savedLng else com.example.data.CommunityMapRepository.DEFAULT_LNG
+                    communityMapRepository.syncPlacesWithCache(cachedPlaceDao, userLat, userLng, dbEvents)
+                    _isMapPlacesCached.value = true
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("EventViewModel", "Offline events sync error: ${e.message}")
+            }
+        }
 
         // Solar cycle background ticker (updates solar state and sunrise/sunset progression every 30 seconds)
         viewModelScope.launch {
@@ -1709,6 +1756,25 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 availableTickets = maxTickets
             )
             repository.insertEvent(event)
+            val (savedLat, savedLng, _) = com.example.network.ApiClient.getSessionManager().getLastSolarLocation()
+            val userLat = if (savedLat != 0.0) savedLat else com.example.data.CommunityMapRepository.DEFAULT_LAT
+            val userLng = if (savedLng != 0.0) savedLng else com.example.data.CommunityMapRepository.DEFAULT_LNG
+            communityMapRepository.cacheEventAsPlace(cachedPlaceDao, event, userLat, userLng)
+        }
+    }
+
+    fun refreshMapPlacesCache(
+        userLat: Double = com.example.data.CommunityMapRepository.DEFAULT_LAT,
+        userLng: Double = com.example.data.CommunityMapRepository.DEFAULT_LNG
+    ) {
+        viewModelScope.launch {
+            try {
+                val dbEvents = repository.allEvents.first()
+                communityMapRepository.syncPlacesWithCache(cachedPlaceDao, userLat, userLng, dbEvents)
+                _isMapPlacesCached.value = true
+            } catch (e: Throwable) {
+                android.util.Log.e("EventViewModel", "Failed to refresh map places cache: ${e.message}")
+            }
         }
     }
 

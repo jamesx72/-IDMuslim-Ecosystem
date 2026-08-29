@@ -1,12 +1,9 @@
 package com.example.utils
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.net.Uri
-import android.util.Base64
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.Base64
 import java.util.UUID
 
 /**
@@ -113,19 +110,12 @@ object VerificationPortalHelper {
             put("v", "2.1")
         }
 
-        val base64Token = Base64.encodeToString(
-            tokenJson.toString().toByteArray(StandardCharsets.UTF_8),
-            Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+        val base64Token = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            tokenJson.toString().toByteArray(StandardCharsets.UTF_8)
         )
 
-        // Web portal query parameters
-        val uriBuilder = Uri.parse("$BASE_PORTAL_DOMAIN$PORTAL_PATH").buildUpon()
-            .appendQueryParameter("id", cleanId)
-            .appendQueryParameter("t", base64Token)
-            .appendQueryParameter("exp", exp.toString())
-            .appendQueryParameter("sig", signature)
-
-        val fullUrl = uriBuilder.build().toString()
+        // Web portal URL with query parameters
+        val fullUrl = "$BASE_PORTAL_DOMAIN$PORTAL_PATH?id=${java.net.URLEncoder.encode(cleanId, "UTF-8")}&t=${java.net.URLEncoder.encode(base64Token, "UTF-8")}&exp=$exp&sig=$signature"
 
         val payload = PortalPayload(
             memberId = cleanId,
@@ -193,10 +183,15 @@ object VerificationPortalHelper {
             var expParam: Long? = null
 
             if (input.startsWith("http://") || input.startsWith("https://")) {
-                val uri = Uri.parse(input)
-                tokenStr = uri.getQueryParameter("t")
-                explicitId = uri.getQueryParameter("id")
-                expParam = uri.getQueryParameter("exp")?.toLongOrNull()
+                val query = if (input.contains("?")) input.substringAfter("?") else ""
+                val params = query.split("&").associate { param ->
+                    val parts = param.split("=", limit = 2)
+                    if (parts.size == 2) java.net.URLDecoder.decode(parts[0], "UTF-8") to java.net.URLDecoder.decode(parts[1], "UTF-8")
+                    else parts[0] to ""
+                }
+                tokenStr = params["t"]
+                explicitId = params["id"]
+                expParam = params["exp"]?.toLongOrNull()
             } else if (input.startsWith("{") && input.endsWith("}")) {
                 // Raw JSON
                 val json = JSONObject(input)
@@ -207,7 +202,11 @@ object VerificationPortalHelper {
             }
 
             if (tokenStr != null) {
-                val decodedBytes = Base64.decode(tokenStr, Base64.URL_SAFE or Base64.DEFAULT)
+                val decodedBytes = try {
+                    Base64.getUrlDecoder().decode(tokenStr)
+                } catch (e: Exception) {
+                    Base64.getDecoder().decode(tokenStr)
+                }
                 val json = JSONObject(String(decodedBytes, StandardCharsets.UTF_8))
                 return parseJsonToResult(json)
             }

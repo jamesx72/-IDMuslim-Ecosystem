@@ -53,12 +53,16 @@ import com.example.ui.screens.ForumScreen
 import com.example.ui.screens.QAScreen
 import com.example.ui.locales.Translations
 
+import androidx.compose.material.icons.filled.LocationOn
+import com.example.ui.screens.CommunityMapScreen
+
 sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
     object Splash : Screen("splash", "Splash", null)
     object Auth : Screen("auth", "Authentification", null)
     object Profile : Screen("profile", "Profil", Icons.Default.Home)
     object Scanner : Screen("scanner", "Scanner", Icons.Default.QrCodeScanner)
     object Events : Screen("events", "Événements", Icons.Default.Event)
+    object Map : Screen("map", "Carte", Icons.Default.LocationOn)
     object Forum : Screen("forum", "Communauté", Icons.Default.People)
     object QA : Screen("qa", "Questions", Icons.AutoMirrored.Filled.Chat)
     object Admin : Screen("admin", "Admin", Icons.Default.AdminPanelSettings)
@@ -187,30 +191,11 @@ fun IDMuslimApp(startRoute: String = "auth") {
                 ) {
                     composable(Screen.Splash.route) {
                         SplashScreen(onSplashFinished = {
-                            if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
-                                val activity = context as? androidx.fragment.app.FragmentActivity
-                                if (activity != null && com.example.security.BiometricHelper.canAuthenticate(context)) {
-                                    com.example.security.BiometricHelper.authenticate(
-                                        activity = activity,
-                                        title = "IDMuslim",
-                                        subtitle = "Authenticate to open",
-                                        onSuccess = {
-                                            navController.navigate(Screen.Profile.route) {
-                                                popUpTo(Screen.Splash.route) { inclusive = true }
-                                            }
-                                        },
-                                        onError = { error ->
-                                            android.widget.Toast.makeText(context, "Authentication canceled.", android.widget.Toast.LENGTH_SHORT).show()
-                                            // Fallback to Auth on cancellation or error
-                                            navController.navigate(Screen.Auth.route) {
-                                                popUpTo(Screen.Splash.route) { inclusive = true }
-                                            }
-                                        }
-                                    )
-                                } else {
-                                    navController.navigate(Screen.Profile.route) {
-                                        popUpTo(Screen.Splash.route) { inclusive = true }
-                                    }
+                            val sessionManager = com.example.network.ApiClient.getSessionManager()
+                            val isUserLoggedIn = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null || sessionManager.getAuthToken() != null
+                            if (isUserLoggedIn) {
+                                navController.navigate(Screen.Profile.route) {
+                                    popUpTo(Screen.Splash.route) { inclusive = true }
                                 }
                             } else {
                                 navController.navigate(Screen.Auth.route) {
@@ -253,6 +238,12 @@ fun IDMuslimApp(startRoute: String = "auth") {
                     }
                     composable(Screen.Scanner.route) {
                         ScannerScreen(viewModel = eventViewModel)
+                    }
+                    composable(Screen.Map.route) {
+                        CommunityMapScreen(
+                            viewModel = eventViewModel,
+                            onNavigateToDetail = { eventId -> navController.navigate(Screen.EventDetail.createRoute(eventId)) }
+                        )
                     }
                     composable(Screen.DocumentScanner.route) {
                         DocumentScannerScreen(

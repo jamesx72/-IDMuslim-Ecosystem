@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import net.sqlcipher.database.SupportFactory
 import com.example.security.DatabaseKeyManager
 
-@Database(entities = [EventEntity::class, TicketEntity::class, WaitlistEntity::class, ActivityLogEntity::class, CommunityPostEntity::class, UserProfileEntity::class, DocumentEntity::class, MosqueSearchEntity::class], version = 9, exportSchema = false)
+@Database(entities = [EventEntity::class, TicketEntity::class, WaitlistEntity::class, ActivityLogEntity::class, CommunityPostEntity::class, UserProfileEntity::class, DocumentEntity::class, MosqueSearchEntity::class, CachedPlaceEntity::class], version = 10, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
     abstract fun activityLogDao(): ActivityLogDao
@@ -15,6 +15,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userProfileDao(): UserProfileDao
     abstract fun documentDao(): DocumentDao
     abstract fun mosqueSearchDao(): MosqueSearchDao
+    abstract fun cachedPlaceDao(): CachedPlaceDao
 
     companion object {
         @Volatile
