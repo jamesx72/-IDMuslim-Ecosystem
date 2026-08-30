@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,14 +37,13 @@ fun PrayerTimesSection() {
     var dateInfo by remember { mutableStateOf<DateInfo?>(null) }
     var locationError by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var showAdhanSettingsDialog by remember { mutableStateOf(false) }
 
     val fusedLocationClient = remember(context) { 
         LocationServices.getFusedLocationProviderClient(context) 
     }
 
     val sessionManager = remember { com.example.network.ApiClient.getSessionManager() }
-    val calculationMethod = remember { sessionManager.getPrayerCalculationMethod() }
-    val prayerNotifications = remember { sessionManager.getPrayerNotifications() }
 
     val fetchPrayerTimes = { lat: Double, lng: Double ->
         coroutineScope.launch {
@@ -109,10 +110,20 @@ fun PrayerTimesSection() {
     }
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Horaires des Prières (Local)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Horaires des Prières (Local GPS)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+
+            IconButton(onClick = { showAdhanSettingsDialog = true }) {
+                Icon(Icons.Default.VolumeUp, contentDescription = "Réglages Adhan", tint = MaterialTheme.colorScheme.primary)
+            }
         }
 
         if (isLoading) {
@@ -193,7 +204,7 @@ fun PrayerTimesSection() {
                             tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             if (isNow || nextPrayerMinutesDiff == 0) {
                                 Text(
                                     "C'est l'heure de la prière de $nextPrayerName !",
@@ -207,11 +218,15 @@ fun PrayerTimesSection() {
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 Text(
-                                    "Dans $timeString",
+                                    "Dans $timeString (Alerte Adhan programmée)",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                                 )
                             }
+                        }
+
+                        IconButton(onClick = { showAdhanSettingsDialog = true }) {
+                            Icon(Icons.Default.Tune, contentDescription = "Paramètres", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                     }
                 }
@@ -250,6 +265,21 @@ fun PrayerTimesSection() {
                 }
             }
         }
+    }
+
+    if (showAdhanSettingsDialog) {
+        AdhanSettingsDialog(
+            onDismiss = {
+                showAdhanSettingsDialog = false
+                prayerTimings?.let { timings ->
+                    if (sessionManager.getPrayerNotifications()) {
+                        com.example.notifications.PrayerNotificationScheduler.schedulePrayerNotifications(context, timings)
+                    } else {
+                        com.example.notifications.PrayerNotificationScheduler.cancelAllPrayerNotifications(context)
+                    }
+                }
+            }
+        )
     }
 }
 

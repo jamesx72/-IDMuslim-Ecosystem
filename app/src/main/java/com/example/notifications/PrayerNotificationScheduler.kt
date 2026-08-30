@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import com.example.data.Timings
+import com.example.network.ApiClient
 import java.util.Calendar
 
 object PrayerNotificationScheduler {
@@ -14,6 +15,14 @@ object PrayerNotificationScheduler {
     private const val TAG = "PrayerScheduler"
 
     fun schedulePrayerNotifications(context: Context, timings: Timings) {
+        val sessionManager = ApiClient.getSessionManager()
+        if (!sessionManager.getPrayerNotifications()) {
+            cancelAllPrayerNotifications(context)
+            return
+        }
+
+        val preReminderMinutes = sessionManager.getPrePrayerReminderMinutes()
+
         val prayers = listOf(
             "Fajr" to timings.Fajr,
             "Dhuhr" to timings.Dhuhr,
@@ -45,32 +54,46 @@ object PrayerNotificationScheduler {
                         }
                     }
 
-                    val intent = Intent(context, PrayerNotificationReceiver::class.java).apply {
+                    // 1. Exact Prayer Time (Adhan) Notification
+                    val prayerIntent = Intent(context, PrayerNotificationReceiver::class.java).apply {
                         putExtra(PrayerNotificationReceiver.EXTRA_PRAYER_NAME, name)
+                        putExtra(PrayerNotificationReceiver.EXTRA_IS_PRE_REMINDER, false)
                     }
 
-                    val pendingIntent = PendingIntent.getBroadcast(
+                    val prayerPendingIntent = PendingIntent.getBroadcast(
                         context,
-                        index + 100, // requestCode 100, 101, 102, 103, 104
-                        intent,
+                        index + 100, // requestCode 100..104
+                        prayerIntent,
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                     )
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        alarmManager.setAndAllowWhileIdle(
-                            AlarmManager.RTC_WAKEUP,
-                            calendar.timeInMillis,
-                            pendingIntent
-                        )
-                    } else {
-                        alarmManager.set(
-                            AlarmManager.RTC_WAKEUP,
-                            calendar.timeInMillis,
-                            pendingIntent
-                        )
+                    scheduleAlarm(alarmManager, calendar.timeInMillis, prayerPendingIntent)
+
+                    // 2. Pre-Prayer Reminder (e.g. 15 minutes before)
+                    if (preReminderMinutes > 0) {
+                        val preCal = (calendar.clone() as Calendar).apply {
+                            add(Calendar.MINUTE, -preReminderMinutes)
+                        }
+
+                        if (preCal.timeInMillis > System.currentTimeMillis()) {
+                            val preIntent = Intent(context, PrayerNotificationReceiver::class.java).apply {
+                                putExtra(PrayerNotificationReceiver.EXTRA_PRAYER_NAME, name)
+                                putExtra(PrayerNotificationReceiver.EXTRA_IS_PRE_REMINDER, true)
+                                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_MINUTES, preReminderMinutes)
+                            }
+
+                            val prePendingIntent = PendingIntent.getBroadcast(
+                                context,
+                                index + 600, // requestCode 600..604
+                                preIntent,
+                                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                            )
+
+                            scheduleAlarm(alarmManager, preCal.timeInMillis, prePendingIntent)
+                        }
                     }
 
-                    Log.d(TAG, "Scheduled notification for $name at ${calendar.time}")
+                    Log.d(TAG, "Scheduled Adhan and reminders for $name at ${calendar.time}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error scheduling prayer $name: ${e.message}")
@@ -78,9 +101,26 @@ object PrayerNotificationScheduler {
         }
     }
 
+    private fun scheduleAlarm(alarmManager: AlarmManager, triggerAtMillis: Long, pendingIntent: PendingIntent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                triggerAtMillis,
+                pendingIntent
+            )
+        } else {
+            alarmManager.set(
+                AlarmManager.RTC_WAKEUP,
+                triggerAtMillis,
+                pendingIntent
+            )
+        }
+    }
+
     fun cancelAllPrayerNotifications(context: Context) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         for (i in 0..4) {
+            // Main prayer intent
             val intent = Intent(context, PrayerNotificationReceiver::class.java)
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
@@ -91,6 +131,18 @@ object PrayerNotificationScheduler {
             if (pendingIntent != null) {
                 alarmManager.cancel(pendingIntent)
                 pendingIntent.cancel()
+            }
+
+            // Pre-prayer reminder intent
+            val prePendingIntent = PendingIntent.getBroadcast(
+                context,
+                i + 600,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (prePendingIntent != null) {
+                alarmManager.cancel(prePendingIntent)
+                prePendingIntent.cancel()
             }
         }
     }

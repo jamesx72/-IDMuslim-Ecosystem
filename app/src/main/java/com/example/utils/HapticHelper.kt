@@ -181,6 +181,13 @@ object HapticHelper {
     }
 
     /**
+     * General success feedback.
+     */
+    fun performSuccess(context: Context? = null, haptic: HapticFeedback? = null) {
+        performAuthSuccess(context, haptic)
+    }
+
+    /**
      * QR code scanned successfully or NFC detected.
      */
     fun performScanSuccess(context: Context? = null, haptic: HapticFeedback? = null) {

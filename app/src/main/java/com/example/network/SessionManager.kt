@@ -122,6 +122,22 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("KEY_PRAYER_NOTIFICATIONS", true)
     }
 
+    fun saveAdhanAudioEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("KEY_ADHAN_AUDIO_ENABLED", enabled).apply()
+    }
+
+    fun isAdhanAudioEnabled(): Boolean {
+        return prefs.getBoolean("KEY_ADHAN_AUDIO_ENABLED", true)
+    }
+
+    fun savePrePrayerReminderMinutes(minutes: Int) {
+        prefs.edit().putInt("KEY_PRE_PRAYER_REMINDER_MINUTES", minutes).apply()
+    }
+
+    fun getPrePrayerReminderMinutes(): Int {
+        return prefs.getInt("KEY_PRE_PRAYER_REMINDER_MINUTES", 15)
+    }
+
     fun savePrayerCalculationMethod(methodId: Int) {
         prefs.edit().putInt("KEY_PRAYER_CALCULATION_METHOD", methodId).apply()
     }
@@ -531,4 +547,14 @@ class SessionManager(context: Context) {
     fun getCardFontScale(): Float {
         return prefs.getFloat("KEY_CARD_FONT_SCALE", 1.0f)
     }
+
+    // Onboarding Coach-Mark Preferences
+    fun saveCoachMarkCompleted(completed: Boolean) {
+        prefs.edit().putBoolean("KEY_COACHMARK_COMPLETED", completed).apply()
+    }
+
+    fun isCoachMarkCompleted(): Boolean {
+        return prefs.getBoolean("KEY_COACHMARK_COMPLETED", false)
+    }
 }
+

@@ -1,7 +1,10 @@
 package com.example.ui.screens
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.*
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.shape.CircleShape
@@ -27,6 +31,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import com.example.ui.viewmodels.EventViewModel
 import com.example.ui.locales.Translations
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +41,7 @@ fun EditProfileScreen(
 ) {
     val language by viewModel.language.collectAsState()
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     
     val profilePhotoBase64 by viewModel.profilePhotoBase64.collectAsState()
     val currentFullName by viewModel.profileFullName.collectAsState()
@@ -141,6 +147,32 @@ fun EditProfileScreen(
         }
     }
 
+    val docOcrLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val result = com.example.utils.DocumentOcrProcessor.extractCredentialsFromImageUri(context, uri)
+                    if (result.fullName.isNotBlank()) fullName = result.fullName
+                    if (result.dateOfBirth.isNotBlank()) dob = result.dateOfBirth
+                    if (result.docNumber.isNotBlank()) {
+                        docNumber = result.docNumber
+                        if (result.docType.contains("Passport", ignoreCase = true)) {
+                            passportNumber = result.docNumber
+                        }
+                    }
+                    if (result.docType.isNotBlank()) docType = result.docType
+                    if (result.issuingCountry.isNotBlank()) issuingCountry = result.issuingCountry
+                    if (result.expiryDate.isNotBlank()) docExpiryDate = result.expiryDate
+                    android.widget.Toast.makeText(context, "OCR: Données du document extraites avec succès !", android.widget.Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "Erreur OCR : ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     LaunchedEffect(currentFullName, currentDob, currentResidency, currentCommunity, currentPassport, currentLicense, currentDocType, currentDocNumber, currentIssuingCountry, currentExpiryDate) {
         if (fullName.isEmpty() && !currentFullName.isNullOrEmpty()) {
             fullName = currentFullName ?: ""
@@ -236,6 +268,55 @@ fun EditProfileScreen(
                             tint = androidx.compose.ui.graphics.Color.White,
                             modifier = Modifier.size(32.dp)
                         )
+                    }
+                }
+            }
+
+            // OCR Quick Scan Action Banner
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DocumentScanner,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Scanner OCR Automatique",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Pré-remplir les champs avec votre passeport / CNI",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = { docOcrLauncher.launch("image/*") },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("Scanner", fontSize = 12.sp)
                     }
                 }
             }

@@ -6,29 +6,52 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
+import com.example.network.ApiClient
+import com.example.utils.AdhanAudioPlayer
 
 class PrayerNotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val prayerName = intent.getStringExtra(EXTRA_PRAYER_NAME) ?: "Prière"
-        showPrayerNotification(context, prayerName)
+        val isPreReminder = intent.getBooleanExtra(EXTRA_IS_PRE_REMINDER, false)
+        val reminderMinutes = intent.getIntExtra(EXTRA_REMINDER_MINUTES, 15)
+
+        showPrayerNotification(context, prayerName, isPreReminder, reminderMinutes)
     }
 
-    private fun showPrayerNotification(context: Context, prayerName: String) {
+    private fun showPrayerNotification(
+        context: Context,
+        prayerName: String,
+        isPreReminder: Boolean,
+        reminderMinutes: Int
+    ) {
+        val sessionManager = ApiClient.getSessionManager()
+        val isAdhanAudioEnabled = sessionManager.isAdhanAudioEnabled()
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        val channelId = "prayer_times_channel"
+        val channelId = if (isPreReminder) "prayer_pre_reminder_channel" else "prayer_times_channel"
+        val channelName = if (isPreReminder) "Rappels Pré-Prière" else "Avis Adhan Heures de Prière"
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "Rappels des Heures de Prière",
+                channelName,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Avis des heures de prière (Adhan)"
+                description = "Notifications et Adhan pour les 5 prières quotidiennes"
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 400, 200, 400)
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val audioAttributes = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+                setSound(soundUri, audioAttributes)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -44,18 +67,40 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, channelId)
+        val title = if (isPreReminder) {
+            "⏰ Rappel Prière : $prayerName dans $reminderMinutes min"
+        } else {
+            "🕌 C'est l'heure de la prière de $prayerName !"
+        }
+
+        val text = if (isPreReminder) {
+            "Préparez vos ablutions (Wudu). L'heure de $prayerName approche."
+        } else {
+            "Allahu Akbar — L'Adhan retentit pour la prière de $prayerName."
+        }
+
+        val notificationBuilder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle("C'est l'heure de la prière de $prayerName !")
-            .setContentText("Athan - Il est l'heure d'accomplir la prière de $prayerName.")
+            .setContentTitle(title)
+            .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setVibrate(longArrayOf(0, 500, 200, 500))
-            .build()
+            .setVibrate(longArrayOf(0, 500, 250, 500, 250, 500))
 
-        notificationManager.notify(getPrayerNotificationId(prayerName), notification)
+        if (!isPreReminder && isAdhanAudioEnabled) {
+            // Trigger audio playback for Adhan alert
+            AdhanAudioPlayer.playAdhan(context)
+        }
+
+        val notificationId = if (isPreReminder) {
+            getPrayerNotificationId(prayerName) + 500
+        } else {
+            getPrayerNotificationId(prayerName)
+        }
+
+        notificationManager.notify(notificationId, notificationBuilder.build())
     }
 
     private fun getPrayerNotificationId(prayerName: String): Int {
@@ -71,5 +116,7 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
 
     companion object {
         const val EXTRA_PRAYER_NAME = "extra_prayer_name"
+        const val EXTRA_IS_PRE_REMINDER = "extra_is_pre_reminder"
+        const val EXTRA_REMINDER_MINUTES = "extra_reminder_minutes"
     }
 }

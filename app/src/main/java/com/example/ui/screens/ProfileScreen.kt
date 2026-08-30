@@ -5,6 +5,8 @@ import com.example.utils.HapticHelper
 import androidx.compose.ui.platform.LocalHapticFeedback
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.clickable
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +43,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Help
@@ -81,7 +85,8 @@ fun ProfileScreen(
     onLogout: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToEditProfile: () -> Unit = {},
-    onNavigateToDocumentScanner: () -> Unit = {}
+    onNavigateToDocumentScanner: () -> Unit = {},
+    onNavigateToQibla: () -> Unit = {}
 ) {
     val firebaseUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
     val cachedUserProfile by viewModel.cachedUserProfile.collectAsStateWithLifecycle()
@@ -145,6 +150,7 @@ fun ProfileScreen(
     val isOnline by viewModel.isOnline.collectAsState()
     val isBackgroundSyncEnabled by viewModel.isBackgroundSyncEnabled.collectAsState()
     val isRealtimeSyncActive by viewModel.isRealtimeSyncActive.collectAsState()
+    val isCardSyncing by viewModel.isCardSyncing.collectAsState()
     val syncStatusMessage by viewModel.syncStatusMessage.collectAsState()
 
     val combinedLogs = remember(userActivityLogs, activityLogs) {
@@ -185,6 +191,15 @@ fun ProfileScreen(
     var showIdReadyAlert by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
     var showFaqDialog by remember { mutableStateOf(false) }
+
+    val isCoachMarkCompleted by viewModel.isCoachMarkCompleted.collectAsState()
+    var showCoachMarkOverlay by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isCoachMarkCompleted) {
+        if (!isCoachMarkCompleted) {
+            showCoachMarkOverlay = true
+        }
+    }
 
     val notifications = remember(verificationStatus, isVerified) {
         val list = mutableListOf<Map<String, String>>()
@@ -489,6 +504,20 @@ fun ProfileScreen(
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("Guide interactif (Tutoriel)") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            onClick = {
+                                showProfileMenu = false
+                                showCoachMarkOverlay = true
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text(Translations.get(language, "logout"), color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 showProfileMenu = false
@@ -623,17 +652,18 @@ fun ProfileScreen(
                                     isSolarAdaptive = isSolarAdaptiveTheme,
                                     solarState = solarState,
                                     cardFontScale = cardFontScale,
-                                    fullName = profileFullName,
-                                    dateOfBirth = profileDateOfBirth,
-                                    residency = profileResidency,
-                                    communityAffiliation = profileCommunityAffiliation,
-                                    passportNumber = profilePassport,
-                                    licenseNumber = profileLicense,
+                                    fullName = profileFullName.ifBlank { cachedFullName ?: displayName },
+                                    dateOfBirth = profileDateOfBirth.ifBlank { cachedDob ?: "" },
+                                    residency = profileResidency.ifBlank { cachedResidency ?: "" },
+                                    communityAffiliation = profileCommunityAffiliation.ifBlank { cachedCommunityAffiliation ?: "" },
+                                    passportNumber = profilePassport.ifBlank { cachedPassport ?: "" },
+                                    licenseNumber = profileLicense.ifBlank { cachedLicense ?: "" },
                                     expiryDate = expiryDate,
                                     language = language,
                                     privacyMode = privacyMode,
                                     lastSyncTime = lastBackgroundSyncTime,
                                     isSuspended = isAccountSuspended,
+                                    isSyncing = isCardSyncing,
                                     onPhotoClick = { showPhotoMenu = true },
                                     onDownloadPdfClick = { showSecurePdfDialog = true },
                                     onEmergencyClick = {
@@ -705,12 +735,16 @@ fun ProfileScreen(
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (!isOnline) {
                                         Color(0xFFFEF3C7) // Warm Amber tint
+                                    } else if (isCardSyncing) {
+                                        Color(0xFFECFDF5) // Soft Emerald tint
                                     } else {
                                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                                     }
                                 ),
                                 border = if (!isOnline) {
                                     androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
+                                } else if (isCardSyncing) {
+                                    androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.6f))
                                 } else {
                                     androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                                 }
@@ -726,35 +760,55 @@ fun ProfileScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(10.dp)
-                                                .background(
-                                                    color = if (!isOnline) Color(0xFFF59E0B) else Color(0xFF10B981),
-                                                    shape = CircleShape
-                                                )
-                                        )
+                                        if (isCardSyncing) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(12.dp),
+                                                strokeWidth = 2.dp,
+                                                color = Color(0xFF10B981)
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .background(
+                                                        color = if (!isOnline) Color(0xFFF59E0B) else Color(0xFF10B981),
+                                                        shape = CircleShape
+                                                    )
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.width(10.dp))
                                         Column {
                                             Text(
                                                 text = if (!isOnline) {
                                                     "Mode Hors-Ligne • ID Valide Localement"
+                                                } else if (isCardSyncing) {
+                                                    "Synchronisation en direct (Firestore)"
                                                 } else {
                                                     "Synchronisé au Cloud Sécurisé"
                                                 },
                                                 style = MaterialTheme.typography.labelMedium,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (!isOnline) Color(0xFF92400E) else MaterialTheme.colorScheme.onSurface
+                                                color = if (!isOnline) Color(0xFF92400E) else if (isCardSyncing) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface
                                             )
                                             Text(
-                                                text = "Dernière synchro : $formattedSyncTime",
+                                                text = if (isCardSyncing) "Mise à jour instantanée du cache IDMuslim..." else "Dernière synchro : $formattedSyncTime",
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = if (!isOnline) Color(0xFFB45309) else MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = if (!isOnline) Color(0xFFB45309) else if (isCardSyncing) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
 
                                     if (isOnline) {
+                                        val infiniteTransition = rememberInfiniteTransition(label = "btnSyncRotation")
+                                        val btnSyncAngle by infiniteTransition.animateFloat(
+                                            initialValue = 0f,
+                                            targetValue = 360f,
+                                            animationSpec = infiniteRepeatable(
+                                                animation = tween(durationMillis = 800, easing = LinearEasing),
+                                                repeatMode = RepeatMode.Restart
+                                            ),
+                                            label = "btnSyncAngle"
+                                        )
                                         IconButton(
                                             onClick = { 
                                                 HapticHelper.performClick(context, haptic)
@@ -765,8 +819,10 @@ fun ProfileScreen(
                                             Icon(
                                                 imageVector = Icons.Default.Refresh,
                                                 contentDescription = "Synchroniser maintenant",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                tint = if (isCardSyncing) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier
+                                                    .size(18.dp)
+                                                    .then(if (isCardSyncing) Modifier.graphicsLayer { rotationZ = btnSyncAngle } else Modifier)
                                             )
                                         }
                                     } else {
@@ -788,63 +844,24 @@ fun ProfileScreen(
                                 icon = Icons.Default.AccountBalanceWallet,
                                 title = Translations.get(language, "add_to_wallet"),
                                 onClick = {
-                                    try {
-                                        val passFile = com.example.utils.PassGenerator.generatePkPass(
-                                            context = context,
-                                            fullName = profileFullName,
-                                            memberId = memberId,
-                                            dateOfBirth = profileDateOfBirth,
-                                            verificationStatus = verificationStatus
-                                        )
-                                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.fileprovider",
-                                            passFile
-                                        )
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                                            setDataAndType(uri, "application/vnd.apple.pkpass")
-                                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        if (intent.resolveActivity(context.packageManager) != null) {
-                                            context.startActivity(intent)
-                                            android.widget.Toast.makeText(context, Translations.get(language, "wallet_export_success"), android.widget.Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                                type = "application/vnd.apple.pkpass"
-                                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            context.startActivity(android.content.Intent.createChooser(shareIntent, Translations.get(language, "add_to_wallet")))
-                                        }
-                                    } catch (e: Exception) {
-                                        android.widget.Toast.makeText(context, Translations.get(language, "wallet_export_error"), android.widget.Toast.LENGTH_SHORT).show()
-                                    }
+                                    com.example.utils.DigitalPassManager.exportAndSharePass(
+                                        context = context,
+                                        fullName = profileFullName,
+                                        memberId = memberId,
+                                        dateOfBirth = profileDateOfBirth,
+                                        verificationStatus = verificationStatus,
+                                        residency = profileResidency,
+                                        community = profileCommunityAffiliation
+                                    )
                                 },
                                 modifier = Modifier.weight(1f)
                             )
-                            
+
                             DashboardActionCard(
-                                icon = Icons.Default.Event,
-                                title = Translations.get(language, "add_to_calendar"),
+                                icon = Icons.Default.Explore,
+                                title = "Boussole Qibla",
                                 onClick = {
-                                    try {
-                                        val format = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
-                                        val date = format.parse(expiryDate) ?: java.util.Date()
-                                        val cal = java.util.Calendar.getInstance()
-                                        cal.time = date
-                                        cal.set(java.util.Calendar.HOUR_OF_DAY, 9)
-                                        cal.set(java.util.Calendar.MINUTE, 0)
-                                        
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_INSERT)
-                                            .setData(android.provider.CalendarContract.Events.CONTENT_URI)
-                                            .putExtra(android.provider.CalendarContract.Events.TITLE, Translations.get(language, "calendar_event_title"))
-                                            .putExtra(android.provider.CalendarContract.Events.DESCRIPTION, Translations.get(language, "calendar_event_desc"))
-                                            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, cal.timeInMillis)
-                                            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, true)
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    }
+                                    onNavigateToQibla()
                                 },
                                 modifier = Modifier.weight(1f)
                             )
@@ -1595,6 +1612,19 @@ fun ProfileScreen(
         com.example.ui.components.NotificationsDialog(
             notifications = notifications,
             onDismiss = { showNotificationsDialog = false }
+        )
+    }
+
+    if (showCoachMarkOverlay) {
+        com.example.ui.components.CoachMarkOverlay(
+            language = language,
+            userName = profileFullName.ifBlank { cachedFullName ?: displayName },
+            memberId = memberId,
+            onNavigateToQibla = onNavigateToQibla,
+            onComplete = {
+                showCoachMarkOverlay = false
+                viewModel.completeCoachMark()
+            }
         )
     }
 }

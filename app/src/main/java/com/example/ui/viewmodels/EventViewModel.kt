@@ -231,8 +231,35 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _isRealtimeSyncActive = MutableStateFlow<Boolean>(true)
     val isRealtimeSyncActive: StateFlow<Boolean> = _isRealtimeSyncActive.asStateFlow()
 
+    private val _isCardSyncing = MutableStateFlow<Boolean>(false)
+    val isCardSyncing: StateFlow<Boolean> = _isCardSyncing.asStateFlow()
+
+    private var syncDebounceJob: kotlinx.coroutines.Job? = null
+    fun triggerCardSyncPulse() {
+        _isCardSyncing.value = true
+        syncDebounceJob?.cancel()
+        syncDebounceJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(800)
+            _isCardSyncing.value = false
+        }
+    }
+
     private val _familyMembers = MutableStateFlow<List<com.example.data.FamilyMember>>(emptyList())
     val familyMembers: StateFlow<List<com.example.data.FamilyMember>> = _familyMembers.asStateFlow()
+
+    // Onboarding Coach-Mark Tutorial State
+    private val _isCoachMarkCompleted = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isCoachMarkCompleted())
+    val isCoachMarkCompleted: StateFlow<Boolean> = _isCoachMarkCompleted.asStateFlow()
+
+    fun completeCoachMark() {
+        com.example.network.ApiClient.getSessionManager().saveCoachMarkCompleted(true)
+        _isCoachMarkCompleted.value = true
+    }
+
+    fun resetCoachMark() {
+        com.example.network.ApiClient.getSessionManager().saveCoachMarkCompleted(false)
+        _isCoachMarkCompleted.value = false
+    }
 
     // --- Conflict Resolution Strategy for Room DB & Firestore Sync ---
     private val _syncConflict = MutableStateFlow<com.example.data.SyncConflict?>(null)
@@ -316,6 +343,46 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+        viewModelScope.launch {
+            cachedUserProfile.collect { profile ->
+                if (profile != null) {
+                    if (profile.fullName.isNotEmpty() && _profileFullName.value.isNullOrEmpty()) {
+                        _profileFullName.value = profile.fullName
+                    }
+                    if (profile.dob.isNotEmpty() && _profileDob.value.isNullOrEmpty()) {
+                        _profileDob.value = profile.dob
+                    }
+                    if (profile.residency.isNotEmpty() && _profileResidency.value.isNullOrEmpty()) {
+                        _profileResidency.value = profile.residency
+                    }
+                    if (profile.community.isNotEmpty() && _profileCommunityAffiliation.value.isNullOrEmpty()) {
+                        _profileCommunityAffiliation.value = profile.community
+                    }
+                    if (profile.passportNumber.isNotEmpty() && _profilePassportNumber.value.isNullOrEmpty()) {
+                        _profilePassportNumber.value = profile.passportNumber
+                    }
+                    if (profile.licenseNumber.isNotEmpty() && _profileLicenseNumber.value.isNullOrEmpty()) {
+                        _profileLicenseNumber.value = profile.licenseNumber
+                    }
+                    if (profile.docType.isNotEmpty() && _profileDocType.value.isNullOrEmpty()) {
+                        _profileDocType.value = profile.docType
+                    }
+                    if (profile.docNumber.isNotEmpty() && _profileDocNumber.value.isNullOrEmpty()) {
+                        _profileDocNumber.value = profile.docNumber
+                    }
+                    if (profile.issuingCountry.isNotEmpty() && _profileIssuingCountry.value.isNullOrEmpty()) {
+                        _profileIssuingCountry.value = profile.issuingCountry
+                    }
+                    if (profile.expiryDate.isNotEmpty() && _profileExpiryDate.value.isNullOrEmpty()) {
+                        _profileExpiryDate.value = profile.expiryDate
+                    }
+                    if (profile.lastSyncTime > 0) {
+                        _lastBackgroundSyncTime.value = profile.lastSyncTime
+                    }
+                }
+            }
+        }
 
         viewModelScope.launch {
             documentDao.getAllDocuments().collect { docs ->
@@ -662,6 +729,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         userDocListenerRegistration = FirebaseFirestore.getInstance().collection("users").document(user.uid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                triggerCardSyncPulse()
                 
                 val isSuspendedDoc = snapshot.getBoolean("isSuspended") ?: false
                 val membershipStatusStr = snapshot.getString("membershipStatus") ?: ""
@@ -746,6 +814,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .collection("private_profile").document("identity")
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                triggerCardSyncPulse()
                 val privateIdentity = snapshot.toObject(com.example.data.PrivateIdentity::class.java)?.decrypted(cryptoManager)
                 privateIdentity?.let {
                     if (it.dob.isNotEmpty() && it.dob != _profileDob.value) {
@@ -812,6 +881,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .collection("settings").document("privacy")
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                triggerCardSyncPulse()
                 snapshot.getString("profileVisibility")?.let {
                     _profileVisibility.value = it
                     com.example.network.ApiClient.getSessionManager().saveProfileVisibility(it)
@@ -868,6 +938,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .collection("documents")
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
+                triggerCardSyncPulse()
                 val docs = snapshot.documents.mapNotNull { doc ->
                     val id = doc.id
                     val rawName = doc.getString("name")
@@ -902,6 +973,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .collection("familyMembers")
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null) return@addSnapshotListener
+                triggerCardSyncPulse()
                 val members = snapshot.documents.mapNotNull { doc ->
                     val obj = doc.toObject(com.example.data.FamilyMember::class.java)
                     if (obj != null) {
@@ -924,6 +996,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             _syncStatusMessage.value = "Veuillez vous connecter pour forcer la synchronisation."
             return
         }
+        triggerCardSyncPulse()
         setupRealtimeIdentitySync()
         checkSyncConflicts()
         val now = System.currentTimeMillis()
@@ -1456,6 +1529,31 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         issuingCountry: String = "",
         expiryDate: String = ""
     ) {
+        // Immediate in-memory optimistic updates for zero latency
+        _profileFullName.value = fullName
+        _profileDob.value = dob
+        _profileResidency.value = residency
+        _profileCommunityAffiliation.value = community
+        _profilePassportNumber.value = passportNumber
+        _profileLicenseNumber.value = licenseNumber
+        _profileDocType.value = docType
+        _profileDocNumber.value = docNumber
+        _profileIssuingCountry.value = issuingCountry
+        if (expiryDate.isNotBlank()) _profileExpiryDate.value = expiryDate
+
+        com.example.network.ApiClient.getSessionManager().saveProfileFullName(fullName)
+        com.example.network.ApiClient.getSessionManager().saveProfileDob(dob)
+        com.example.network.ApiClient.getSessionManager().saveProfileResidency(residency)
+        com.example.network.ApiClient.getSessionManager().saveProfileCommunityAffiliation(community)
+        com.example.network.ApiClient.getSessionManager().savePassportNumber(passportNumber)
+        com.example.network.ApiClient.getSessionManager().saveLicenseNumber(licenseNumber)
+        com.example.network.ApiClient.getSessionManager().saveDocType(docType)
+        com.example.network.ApiClient.getSessionManager().saveDocNumber(docNumber)
+        com.example.network.ApiClient.getSessionManager().saveIssuingCountry(issuingCountry)
+        if (expiryDate.isNotBlank()) com.example.network.ApiClient.getSessionManager().saveExpiryDate(expiryDate)
+
+        triggerCardSyncPulse()
+
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
         viewModelScope.launch {
             try {
@@ -1509,6 +1607,8 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                     lastSyncTime = System.currentTimeMillis()
                 ).encrypted(cryptoManager)
                 userProfileDao.insertUserProfile(updatedProfile)
+                _lastBackgroundSyncTime.value = System.currentTimeMillis()
+                com.example.network.ApiClient.getSessionManager().saveLastSyncTime(System.currentTimeMillis())
             } catch (e: Exception) {
                 e.printStackTrace()
             }

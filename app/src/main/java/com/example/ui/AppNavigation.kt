@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -67,6 +69,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object QA : Screen("qa", "Questions", Icons.AutoMirrored.Filled.Chat)
     object Admin : Screen("admin", "Admin", Icons.Default.AdminPanelSettings)
     object Settings : Screen("settings", "Paramètres", Icons.Default.Settings)
+    object Qibla : Screen("qibla", "Qibla", Icons.Default.Explore)
     object CreateEvent : Screen("create_event", "Créer un événement", null)
     object EditProfile : Screen("edit_profile", "Modifier le Profil", null)
     object DocumentScanner : Screen("document_scanner", "Scanner un document", null)
@@ -227,7 +230,16 @@ fun IDMuslimApp(startRoute: String = "auth") {
                             },
                             onNavigateToDocumentScanner = {
                                 navController.navigate(Screen.DocumentScanner.route)
+                            },
+                            onNavigateToQibla = {
+                                navController.navigate(Screen.Qibla.route)
                             }
+                        )
+                    }
+                    composable(Screen.Qibla.route) {
+                        com.example.ui.screens.QiblaCompassScreen(
+                            viewModel = eventViewModel,
+                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
                     composable(Screen.EditProfile.route) {

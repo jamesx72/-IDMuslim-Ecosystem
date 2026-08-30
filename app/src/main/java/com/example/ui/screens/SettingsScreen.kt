@@ -1,4 +1,5 @@
 package com.example.ui.screens
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -1468,6 +1469,58 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            // Guide & Découverte / Interactive Coach-Mark Tutorial
+            var showCoachMarkOverlay by remember { mutableStateOf(false) }
+            Text(
+                text = "Guide & Découverte",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .clickable {
+                        HapticHelper.performClick(context, haptic)
+                        showCoachMarkOverlay = true
+                    },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("Revoir le Guide Interactif", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text("Retournement 3D de la carte, scan NFC et carte interactive", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            if (showCoachMarkOverlay) {
+                com.example.ui.components.CoachMarkOverlay(
+                    language = language,
+                    userName = profileFullName ?: (user?.displayName ?: "Membre IDMuslim"),
+                    memberId = cachedUserProfile?.idNumber?.ifBlank { "IDM-786-2026" } ?: "IDM-786-2026",
+                    onComplete = {
+                        showCoachMarkOverlay = false
+                        viewModel.completeCoachMark()
+                    }
+                )
             }
 
             // Data & Storage Section
