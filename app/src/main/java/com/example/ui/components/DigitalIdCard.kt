@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.Explore
+import com.example.utils.QiblaCompassManager
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -69,6 +71,11 @@ import java.util.Locale
 import java.util.Date
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.CloudDone
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.example.utils.HapticHelper
@@ -108,6 +115,11 @@ fun DigitalIdCard(
     isSolarAdaptive: Boolean = false,
     solarState: com.example.utils.SolarState? = null,
     cardFontScale: Float = 1.0f,
+    userLatitude: Double = 48.8566,
+    userLongitude: Double = 2.3522,
+    membershipTier: String = "STANDARD",
+    membershipStatus: String = "ACTIVE",
+    onMembershipClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -218,6 +230,47 @@ fun DigitalIdCard(
     var showWebPortalDialog by remember { mutableStateOf(false) }
     var showPhotoZoomDialog by remember { mutableStateOf(false) }
     var showQrEnlargedDialog by remember { mutableStateOf(false) }
+    var showNfcHceDialog by remember { mutableStateOf(false) }
+    var showQiblaInfoDialog by remember { mutableStateOf(false) }
+
+    // Live Qibla Compass Sensor integration
+    val compassManager = remember { QiblaCompassManager(context) }
+    val azimuth by compassManager.azimuth.collectAsState()
+    val isSensorAvailable by compassManager.isSensorAvailable.collectAsState()
+
+    DisposableEffect(Unit) {
+        compassManager.startListening()
+        onDispose {
+            compassManager.stopListening()
+        }
+    }
+
+    val qiblaBearing = remember(userLatitude, userLongitude) {
+        QiblaCompassManager.calculateQiblaBearing(userLatitude, userLongitude)
+    }
+    val distanceToKaaba = remember(userLatitude, userLongitude) {
+        QiblaCompassManager.calculateDistanceToKaabaKm(userLatitude, userLongitude).toInt()
+    }
+
+    val relativeAngle = (azimuth - qiblaBearing + 360) % 360
+    val angleDifference = if (relativeAngle > 180) 360 - relativeAngle else relativeAngle
+    val isQiblaAligned = angleDifference <= 12f
+
+    val smoothNeedleRotation by animateFloatAsState(
+        targetValue = -relativeAngle,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "cardQiblaNeedleRotation"
+    )
+
+    val qiblaPulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "qiblaPulseAlpha"
+    )
 
     val blurRadius by animateDpAsState(
         targetValue = if (shieldActive) 8.dp else 0.dp,
@@ -521,6 +574,57 @@ fun DigitalIdCard(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
+                                // Live Qibla Bearing Pill Indicator
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isQiblaAligned) Color(0xFF059669).copy(alpha = 0.35f) else Color(0xFF0F172A).copy(alpha = 0.55f),
+                                    border = BorderStroke(
+                                        0.8.dp,
+                                        if (isQiblaAligned) Color(0xFF34D399) else Color(0xFFFFD700).copy(alpha = 0.5f)
+                                    ),
+                                    modifier = Modifier.clickable {
+                                        HapticHelper.performClick(context, haptic)
+                                        showQiblaInfoDialog = true
+                                    }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 3.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(13.dp)
+                                                .graphicsLayer { rotationZ = smoothNeedleRotation },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Explore,
+                                                contentDescription = "Qibla Direction",
+                                                tint = if (isQiblaAligned) Color(0xFF34D399) else Color(0xFFFFD700),
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = if (isQiblaAligned) "KAABA" else "${qiblaBearing.toInt()}°",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 7.5.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = if (isQiblaAligned) Color(0xFF34D399) else Color(0xFFFFEAA7),
+                                            letterSpacing = 0.4.sp
+                                        )
+                                        if (isQiblaAligned) {
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(4.5.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF34D399).copy(alpha = qiblaPulseAlpha))
+                                            )
+                                        }
+                                    }
+                                }
+
                                 // Live Background Sync Pill Indicator
                                 androidx.compose.animation.AnimatedVisibility(
                                     visible = isSyncing,
@@ -632,7 +736,52 @@ fun DigitalIdCard(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        val isSubExpired = membershipStatus.equals("EXPIRED", ignoreCase = true)
+                        val isSubPastDue = membershipStatus.equals("PAST_DUE", ignoreCase = true)
+                        val isSubWaqf = membershipTier.equals("WAQF_PATRON", ignoreCase = true) || membershipTier.equals("WAQF", ignoreCase = true)
+                        val isSubEmerald = membershipTier.equals("EMERALD", ignoreCase = true) || 
+                                           membershipTier.equals("VERIFIED_PREMIUM", ignoreCase = true) ||
+                                           membershipTier.equals("ÉMERAUDE", ignoreCase = true) ||
+                                           membershipTier.equals("PREMIUM", ignoreCase = true)
+
+                        if (isSubExpired) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFFEF4444).copy(alpha = 0.25f),
+                                border = BorderStroke(0.8.dp, Color(0xFFEF4444).copy(alpha = 0.8f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                                    .clickable {
+                                        HapticHelper.performClick(context, haptic)
+                                        onMembershipClick?.invoke()
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF8A80),
+                                        modifier = Modifier.size(9.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "STATUT : ADHÉSION PREMIUM EXPIRÉE • TOUCHEZ POUR RENOUVELER",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 6.8.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color(0xFFFF8A80),
+                                        letterSpacing = 0.3.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         // Middle Section: Photo & Identity Name & Microchip
                         Row(
@@ -667,10 +816,14 @@ fun DigitalIdCard(
 
                                 Spacer(modifier = Modifier.height(6.dp))
 
-                                // Realistic Smartcard ISO Microchip & Contactless Wave
+                                // Realistic Smartcard ISO Microchip & Contactless Wave (Clickable for HCE Emulation)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.clickable {
+                                        HapticHelper.performClick(context, haptic)
+                                        showNfcHceDialog = true
+                                    }
                                 ) {
                                     IsoSmartChip(
                                         modifier = Modifier.size(width = 34.dp, height = 25.dp)
@@ -679,7 +832,7 @@ fun DigitalIdCard(
                                     // Contactless NFC Wave Icon
                                     Icon(
                                         imageVector = Icons.Default.Nfc,
-                                        contentDescription = "Contactless Smart Card",
+                                        contentDescription = "Contactless Smart Card HCE",
                                         tint = Color(0xFFFFD700).copy(alpha = 0.85f),
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -701,6 +854,16 @@ fun DigitalIdCard(
                                             )
                                         }
                                     }
+
+                                    // Dynamic Real-time Premium & Subscription Status Badge
+                                    DigitalCardPremiumBadge(
+                                        membershipTier = membershipTier,
+                                        membershipStatus = membershipStatus,
+                                        onClick = {
+                                            HapticHelper.performClick(context, haptic)
+                                            onMembershipClick?.invoke()
+                                        }
+                                    )
                                 }
                             }
 
@@ -1053,6 +1216,121 @@ fun DigitalIdCard(
                                         fontSize = 10.sp
                                     )
                                 }
+
+                                // Real-time Cloud Subscription State & Firestore Live Sync
+                                val isVersoSubExpired = membershipStatus.equals("EXPIRED", ignoreCase = true)
+                                val isVersoSubPastDue = membershipStatus.equals("PAST_DUE", ignoreCase = true)
+                                val isVersoSubWaqf = membershipTier.equals("WAQF_PATRON", ignoreCase = true) || membershipTier.equals("WAQF", ignoreCase = true)
+                                val isVersoSubEmerald = membershipTier.equals("EMERALD", ignoreCase = true) || 
+                                                        membershipTier.equals("VERIFIED_PREMIUM", ignoreCase = true) ||
+                                                        membershipTier.equals("ÉMERAUDE", ignoreCase = true) ||
+                                                        membershipTier.equals("PREMIUM", ignoreCase = true)
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isVersoSubExpired) Color(0xFF7F1D1D).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.08f),
+                                    border = BorderStroke(
+                                        0.8.dp,
+                                        if (isVersoSubExpired) Color(0xFFEF4444).copy(alpha = 0.7f)
+                                        else if (isVersoSubWaqf) Color(0xFFFFD700).copy(alpha = 0.6f)
+                                        else if (isVersoSubEmerald) Color(0xFF34D399).copy(alpha = 0.6f)
+                                        else Color.White.copy(alpha = 0.25f)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            HapticHelper.performClick(context, haptic)
+                                            onMembershipClick?.invoke()
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isVersoSubExpired) Icons.Default.Warning 
+                                                        else if (isVersoSubWaqf) Icons.Default.WorkspacePremium 
+                                                        else if (isVersoSubEmerald) Icons.Default.AutoAwesome 
+                                                        else Icons.Default.CloudDone,
+                                                    contentDescription = null,
+                                                    tint = if (isVersoSubExpired) Color(0xFFFF8A80) 
+                                                        else if (isVersoSubWaqf) Color(0xFFFFD700) 
+                                                        else if (isVersoSubEmerald) Color(0xFF34D399) 
+                                                        else Color(0xFF93C5FD),
+                                                    modifier = Modifier.size(10.dp)
+                                                )
+                                                Text(
+                                                    text = "FIRESTORE SYNC EN DIRECT",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontSize = 6.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White.copy(alpha = 0.75f),
+                                                    letterSpacing = 0.4.sp
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "${if (membershipTier.isBlank()) "STANDARD" else membershipTier.uppercase()} • ${if (membershipStatus.isBlank()) "ACTIVE" else membershipStatus.uppercase()}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 8.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = if (isVersoSubExpired) Color(0xFFFF8A80) 
+                                                    else if (isVersoSubWaqf) Color(0xFFFFEAA7) 
+                                                    else if (isVersoSubEmerald) Color(0xFF6EE7B7) 
+                                                    else Color.White
+                                            )
+                                        }
+                                        
+                                        // Status Pill on Verso
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (isVersoSubExpired) Color(0xFFEF4444).copy(alpha = 0.25f) 
+                                                else if (isVersoSubPastDue) Color(0xFFF59E0B).copy(alpha = 0.25f)
+                                                else Color(0xFF10B981).copy(alpha = 0.25f),
+                                            border = BorderStroke(
+                                                0.6.dp, 
+                                                if (isVersoSubExpired) Color(0xFFEF4444) 
+                                                else if (isVersoSubPastDue) Color(0xFFF59E0B)
+                                                else Color(0xFF34D399)
+                                            )
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(4.5.dp)
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            if (isVersoSubExpired) Color(0xFFEF4444) 
+                                                            else if (isVersoSubPastDue) Color(0xFFF59E0B)
+                                                            else Color(0xFF34D399)
+                                                        )
+                                                )
+                                                Text(
+                                                    text = if (isVersoSubExpired) "EXPIRÉ" 
+                                                        else if (isVersoSubPastDue) "ATTENTE" 
+                                                        else "ACTIF",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontSize = 7.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = if (isVersoSubExpired) Color(0xFFFF8A80) 
+                                                        else if (isVersoSubPastDue) Color(0xFFFDE68A)
+                                                        else Color(0xFF6EE7B7)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             // Large QR Code
@@ -1379,6 +1657,278 @@ fun DigitalIdCard(
             onDismiss = { showWebPortalDialog = false }
         )
     }
+
+    if (showNfcHceDialog) {
+        NfcHostCardEmulationDialog(
+            memberId = memberId,
+            fullName = fullName,
+            verificationStatus = verificationStatus,
+            dateOfBirth = dateOfBirth,
+            residency = residency,
+            communityAffiliation = communityAffiliation,
+            nfcChipUid = nfcChipUid,
+            cryptoHash = cryptoHash,
+            onDismiss = { showNfcHceDialog = false }
+        )
+    }
+
+    if (showQiblaInfoDialog) {
+        QiblaCardTelemetryDialog(
+            azimuth = azimuth,
+            qiblaBearing = qiblaBearing,
+            distanceKm = distanceToKaaba,
+            isAligned = isQiblaAligned,
+            isSensorAvailable = isSensorAvailable,
+            onDismiss = { showQiblaInfoDialog = false }
+        )
+    }
+}
+
+@Composable
+fun QiblaCardTelemetryDialog(
+    azimuth: Float,
+    qiblaBearing: Float,
+    distanceKm: Int,
+    isAligned: Boolean,
+    isSensorAvailable: Boolean,
+    onDismiss: () -> Unit
+) {
+    val relativeAngle = (azimuth - qiblaBearing + 360) % 360
+    val smoothRotation by animateFloatAsState(
+        targetValue = -relativeAngle,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "dialogNeedleRotation"
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 20.dp,
+            border = BorderStroke(1.5.dp, if (isAligned) Color(0xFF10B981) else Color(0xFFFFD700).copy(alpha = 0.6f)),
+            modifier = Modifier.fillMaxWidth(0.92f)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isAligned) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFFFD700).copy(alpha = 0.2f),
+                            border = BorderStroke(1.dp, if (isAligned) Color(0xFF34D399) else Color(0xFFFFD700)),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Explore,
+                                    contentDescription = "Boussole Qibla",
+                                    tint = if (isAligned) Color(0xFF34D399) else Color(0xFFFFD700),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Text(
+                                text = "BOUSSOLE QIBLA EN DIRECT",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = "Intégrée à votre carte IDMuslim",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Fermer")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Compass Ring
+                Box(
+                    modifier = Modifier
+                        .size(180.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    if (isAligned) Color(0xFF064E3B) else Color(0xFF1E293B),
+                                    Color(0xFF0F172A)
+                                )
+                            )
+                        )
+                        .border(
+                            width = 2.5.dp,
+                            brush = if (isAligned) {
+                                Brush.linearGradient(listOf(Color(0xFF34D399), Color(0xFF10B981)))
+                            } else {
+                                Brush.linearGradient(listOf(Color(0xFFFFD700), Color(0xFFD4AF37)))
+                            },
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Kaaba Needle Marker
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { rotationZ = smoothRotation },
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(top = 10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF10B981),
+                                border = BorderStroke(1.dp, Color.White),
+                                shadowElevation = 6.dp
+                            ) {
+                                Text(
+                                    text = "🕋 KAABA",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(3.dp)
+                                    .height(40.dp)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(Color(0xFF34D399), Color.Transparent)
+                                        ),
+                                        RoundedCornerShape(2.dp)
+                                    )
+                            )
+                        }
+                    }
+
+                    // Center Hub
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isAligned) Color(0xFF10B981) else Color(0xFFD4AF37),
+                        border = BorderStroke(2.dp, Color.White),
+                        shadowElevation = 8.dp,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "${qiblaBearing.toInt()}°",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 10.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Telemetry Cards
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "ORIENTATION",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 8.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${qiblaBearing.toInt()}° Nord",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "DISTANCE LA MECQUE",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 8.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$distanceKm km",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isAligned) Color(0xFFECFDF5) else Color(0xFFFFFBEB),
+                    border = BorderStroke(1.dp, if (isAligned) Color(0xFF34D399) else Color(0xFFFCD34D)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isAligned) Icons.Default.CheckCircle else Icons.Default.Explore,
+                            contentDescription = null,
+                            tint = if (isAligned) Color(0xFF059669) else Color(0xFFD97706),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isAligned) {
+                                "Parfaitement orienté vers la Sainte Kaaba !"
+                            } else {
+                                "Tournez l'appareil jusqu'à ce que la flèche s'aligne en vert."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isAligned) Color(0xFF065F46) else Color(0xFF92400E)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -1561,3 +2111,149 @@ fun DigitalIdCardSkeleton(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * High-visibility, dynamic Premium Badge for the Digital ID Card.
+ * Reflects real-time Firestore subscription status (ACTIVE, EXPIRED, PAST_DUE, WAQF, EMERALD).
+ */
+@Composable
+fun DigitalCardPremiumBadge(
+    membershipTier: String,
+    membershipStatus: String,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val isSubExpired = membershipStatus.equals("EXPIRED", ignoreCase = true)
+    val isSubPastDue = membershipStatus.equals("PAST_DUE", ignoreCase = true) || membershipStatus.equals("PENDING", ignoreCase = true)
+    val isSubWaqf = membershipTier.equals("WAQF_PATRON", ignoreCase = true) || membershipTier.equals("WAQF", ignoreCase = true)
+    val isSubEmerald = membershipTier.equals("EMERALD", ignoreCase = true) || 
+                       membershipTier.equals("VERIFIED_PREMIUM", ignoreCase = true) || 
+                       membershipTier.equals("ÉMERAUDE", ignoreCase = true) ||
+                       membershipTier.equals("PREMIUM", ignoreCase = true)
+
+    // Pulsing indicator dot animation
+    val infiniteTransition = rememberInfiniteTransition(label = "badgePulse")
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dotAlpha"
+    )
+
+    val badgeConfig = remember(
+        membershipTier, membershipStatus, isSubExpired, isSubPastDue, isSubWaqf, isSubEmerald
+    ) {
+        when {
+            isSubExpired -> {
+                val tierLabel = if (isSubWaqf) "WAQF" else if (isSubEmerald) "ÉMERAUDE" else "PREMIUM"
+                DigitalBadgeConfig(
+                    bgGradient = Brush.horizontalGradient(listOf(Color(0xFF5F0F0F), Color(0xFF881337))),
+                    borderColor = Color(0xFFEF4444).copy(alpha = 0.9f),
+                    textColor = Color(0xFFFF8A80),
+                    statusText = "$tierLabel EXPIRÉ",
+                    iconVector = Icons.Default.Warning,
+                    iconTint = Color(0xFFFF8A80),
+                    dotColor = Color(0xFFEF4444)
+                )
+            }
+            isSubPastDue -> {
+                DigitalBadgeConfig(
+                    bgGradient = Brush.horizontalGradient(listOf(Color(0xFF78350F), Color(0xFF92400E))),
+                    borderColor = Color(0xFFF59E0B).copy(alpha = 0.9f),
+                    textColor = Color(0xFFFDE68A),
+                    statusText = "RENOUVELLEMENT",
+                    iconVector = Icons.Default.HourglassTop,
+                    iconTint = Color(0xFFF59E0B),
+                    dotColor = Color(0xFFF59E0B)
+                )
+            }
+            isSubWaqf -> {
+                DigitalBadgeConfig(
+                    bgGradient = Brush.horizontalGradient(listOf(Color(0xFF78350F), Color(0xFFB45309), Color(0xFFD97706))),
+                    borderColor = Color(0xFFFFD700).copy(alpha = 0.9f),
+                    textColor = Color(0xFFFFEAA7),
+                    statusText = "★ WAQF PATRON",
+                    iconVector = Icons.Default.WorkspacePremium,
+                    iconTint = Color(0xFFFFD700),
+                    dotColor = Color(0xFFFFD700)
+                )
+            }
+            isSubEmerald -> {
+                DigitalBadgeConfig(
+                    bgGradient = Brush.horizontalGradient(listOf(Color(0xFF064E3B), Color(0xFF047857), Color(0xFF059669))),
+                    borderColor = Color(0xFF34D399).copy(alpha = 0.9f),
+                    textColor = Color(0xFF6EE7B7),
+                    statusText = "✦ ÉMERAUDE",
+                    iconVector = Icons.Default.AutoAwesome,
+                    iconTint = Color(0xFF34D399),
+                    dotColor = Color(0xFF34D399)
+                )
+            }
+            else -> {
+                DigitalBadgeConfig(
+                    bgGradient = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.14f), Color.White.copy(alpha = 0.08f))),
+                    borderColor = Color.White.copy(alpha = 0.35f),
+                    textColor = Color.White.copy(alpha = 0.9f),
+                    statusText = "STANDARD",
+                    iconVector = Icons.Default.Shield,
+                    iconTint = Color(0xFF93C5FD),
+                    dotColor = Color(0xFF10B981)
+                )
+            }
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(7.dp),
+        color = Color.Transparent,
+        border = BorderStroke(0.85.dp, badgeConfig.borderColor),
+        modifier = modifier
+            .clip(RoundedCornerShape(7.dp))
+            .background(badgeConfig.bgGradient)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
+        ) {
+            Icon(
+                imageVector = badgeConfig.iconVector,
+                contentDescription = null,
+                tint = badgeConfig.iconTint,
+                modifier = Modifier.size(10.dp)
+            )
+
+            Text(
+                text = badgeConfig.statusText,
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 7.5.sp,
+                fontWeight = FontWeight.Black,
+                color = badgeConfig.textColor,
+                maxLines = 1,
+                letterSpacing = 0.3.sp
+            )
+
+            // Pulsing Live Indicator Dot
+            Box(
+                modifier = Modifier
+                    .size(4.5.dp)
+                    .clip(CircleShape)
+                    .background(badgeConfig.dotColor.copy(alpha = if (isSubExpired || isSubPastDue || isSubWaqf || isSubEmerald) dotAlpha else 0.85f))
+            )
+        }
+    }
+}
+
+private data class DigitalBadgeConfig(
+    val bgGradient: Brush,
+    val borderColor: Color,
+    val textColor: Color,
+    val statusText: String,
+    val iconVector: androidx.compose.ui.graphics.vector.ImageVector,
+    val iconTint: Color,
+    val dotColor: Color
+)

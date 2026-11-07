@@ -1,3 +1,19 @@
 <resources>
     <string name="app_name">IDMuslim</string>
+    <string name="digital_wallet_title">Portefeuille Numérique</string>
+    <string name="digital_wallet_subtitle">Coffre-fort local chiffré SQLCipher AES-256</string>
+    <string name="digital_wallet_locked_title">Coffre-fort Numérique Verrouillé</string>
+    <string name="digital_wallet_locked_desc">Authentifiez-vous par biométrie ou code de sécurité pour déchiffrer vos pièces d\'identité et informations sensibles.</string>
+    <string name="digital_wallet_unlock_button">Déverrouiller le Coffre</string>
+    <string name="digital_wallet_tab_documents">Pièces d\'Identité</string>
+    <string name="digital_wallet_tab_sensitive">Infos Sensibles</string>
+    <string name="digital_wallet_tab_security">Audit SQLCipher</string>
+    <string name="digital_wallet_add_document">Ajouter une Pièce</string>
+    <string name="digital_wallet_add_sensitive">Ajouter un Secret</string>
+    <string name="digital_wallet_empty_docs_title">Aucune pièce dans le coffre SQLCipher</string>
+    <string name="digital_wallet_empty_docs_desc">Ajoutez vos passeports, cartes nationales, titres de séjour ou visas dans une base locale chiffrée AES-256.</string>
+    <string name="digital_wallet_empty_sensitive_title">Aucune information sensible enregistrée</string>
+    <string name="digital_wallet_empty_sensitive_desc">Conservez vos numéros médicaux d\'urgence, coordonnées bancaires IBAN ou codes confidentiels hors-ligne.</string>
+    <string name="digital_wallet_rekey_button">Rotation de la Clé Maîtresse (Rekey)</string>
+    <string name="digital_wallet_purge_button">Purge Cryptographique d\'Urgence</string>
 </resources>

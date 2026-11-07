@@ -177,6 +177,25 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
     private val _hasPaidForPdf = MutableStateFlow(com.example.network.ApiClient.getSessionManager().hasPaidForPdf())
     val hasPaidForPdf: StateFlow<Boolean> = _hasPaidForPdf.asStateFlow()
 
+    // Membership / Subscription Tiers
+    private val _membershipTier = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getMembershipTier())
+    val membershipTier: StateFlow<String> = _membershipTier.asStateFlow()
+
+    private val _membershipStatus = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getMembershipStatus())
+    val membershipStatus: StateFlow<String> = _membershipStatus.asStateFlow()
+
+    private val _membershipBillingCycle = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getMembershipBillingCycle())
+    val membershipBillingCycle: StateFlow<String> = _membershipBillingCycle.asStateFlow()
+
+    private val _membershipExpiryTimestamp = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getMembershipExpiryTimestamp())
+    val membershipExpiryTimestamp: StateFlow<Long> = _membershipExpiryTimestamp.asStateFlow()
+
+    private val _membershipAutoRenew = MutableStateFlow(com.example.network.ApiClient.getSessionManager().isMembershipAutoRenew())
+    val membershipAutoRenew: StateFlow<Boolean> = _membershipAutoRenew.asStateFlow()
+
+    private val _waqfContributionTotal = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getWaqfContributionTotal())
+    val waqfContributionTotal: StateFlow<Float> = _waqfContributionTotal.asStateFlow()
+
     private val _profileVisibility = MutableStateFlow(com.example.network.ApiClient.getSessionManager().getProfileVisibility())
     val profileVisibility: StateFlow<String> = _profileVisibility.asStateFlow()
 
@@ -296,6 +315,92 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _localBackupFiles = MutableStateFlow<List<File>>(emptyList())
     val localBackupFiles: StateFlow<List<File>> = _localBackupFiles.asStateFlow()
+
+    // --- Payout & Payment Reception Configuration StateFlows ---
+    private val _payoutConfig = MutableStateFlow(loadInitialPayoutConfig())
+    val payoutConfig: StateFlow<com.example.data.PayoutConfig> = _payoutConfig.asStateFlow()
+
+    private val _receivedPayments = MutableStateFlow<List<com.example.data.ReceivedPaymentRecord>>(loadInitialReceivedPayments())
+    val receivedPayments: StateFlow<List<com.example.data.ReceivedPaymentRecord>> = _receivedPayments.asStateFlow()
+
+    private fun loadInitialPayoutConfig(): com.example.data.PayoutConfig {
+        val sm = com.example.network.ApiClient.getSessionManager()
+        return com.example.data.PayoutConfig(
+            accountHolderName = sm.getPayoutAccountHolder(),
+            iban = sm.getPayoutIban(),
+            bicSwift = sm.getPayoutBic(),
+            bankName = sm.getPayoutBankName(),
+            stripeAccountId = sm.getPayoutStripeAcct(),
+            stripePaymentLink = sm.getPayoutStripeLink(),
+            paypalEmail = sm.getPayoutPaypalEmail(),
+            paypalMeUsername = sm.getPayoutPaypalMe(),
+            cryptoUsdtAddress = sm.getPayoutCryptoUsdt(),
+            cryptoUsdtNetwork = sm.getPayoutCryptoUsdtNet(),
+            cryptoBtcAddress = sm.getPayoutCryptoBtc(),
+            cryptoEthAddress = sm.getPayoutCryptoEth(),
+            defaultCurrency = sm.getPayoutCurrency(),
+            organizationType = sm.getPayoutOrgType(),
+            instantQrEnabled = sm.isPayoutQrEnabled(),
+            autoIssueReceipt = sm.isPayoutAutoReceipt(),
+            isConfigured = sm.isPayoutConfigured(),
+            updatedAt = sm.getPayoutUpdatedAt()
+        )
+    }
+
+    private fun loadInitialReceivedPayments(): List<com.example.data.ReceivedPaymentRecord> {
+        val sm = com.example.network.ApiClient.getSessionManager()
+        val json = sm.getReceivedPaymentsJson()
+        if (json.isNotBlank()) {
+            try {
+                val moshi = com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
+                val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.example.data.ReceivedPaymentRecord::class.java)
+                val adapter = moshi.adapter<List<com.example.data.ReceivedPaymentRecord>>(type)
+                val list = adapter.fromJson(json)
+                if (!list.isNullOrEmpty()) return list
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        // Initial sample transactions if empty
+        return listOf(
+            com.example.data.ReceivedPaymentRecord(
+                id = "REC-782194",
+                amount = 50.0,
+                currency = "EUR",
+                payerName = "Dr. Tariq Al-Mansoor",
+                motive = "Cotisation Adhésion Émeraude",
+                paymentMethod = "SEPA_VIREMENT",
+                timestamp = System.currentTimeMillis() - 86400000L * 2,
+                status = "CONFIRMED",
+                referenceCode = "VIR-SEPA-88291",
+                taxReceiptEligible = true
+            ),
+            com.example.data.ReceivedPaymentRecord(
+                id = "REC-649102",
+                amount = 120.0,
+                currency = "EUR",
+                payerName = "Fatima Zahra B.",
+                motive = "Don Waqf Mécénat Solidaire",
+                paymentMethod = "STRIPE_CARD",
+                timestamp = System.currentTimeMillis() - 86400000L * 5,
+                status = "CONFIRMED",
+                referenceCode = "ch_3N82b9LkAq1",
+                taxReceiptEligible = true
+            ),
+            com.example.data.ReceivedPaymentRecord(
+                id = "REC-339180",
+                amount = 250.0,
+                currency = "EUR",
+                payerName = "Ibrahim K.",
+                motive = "Zakat Al-Maal (Aumône Légale)",
+                paymentMethod = "CRYPTO_USDT",
+                timestamp = System.currentTimeMillis() - 86400000L * 9,
+                status = "CONFIRMED",
+                referenceCode = "0x89f2a93c...4e1",
+                taxReceiptEligible = true
+            )
+        )
+    }
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -730,6 +835,7 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
                 triggerCardSyncPulse()
+                val sessionManager = com.example.network.ApiClient.getSessionManager()
                 
                 val isSuspendedDoc = snapshot.getBoolean("isSuspended") ?: false
                 val membershipStatusStr = snapshot.getString("membershipStatus") ?: ""
@@ -800,6 +906,76 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
                 if (hasPaid) {
                     com.example.network.ApiClient.getSessionManager().saveHasPaidForPdf(true)
                     _hasPaidForPdf.value = true
+                }
+
+                // Real-time Cloud Function / Webhook Subscription Synchronization
+                val tierFromDoc = snapshot.getString("membershipTier")
+                val cycleFromDoc = snapshot.getString("membershipCycle")
+                val expiryTimestampFromDoc = snapshot.getLong("membershipExpiry")
+                val autoRenewFromDoc = snapshot.getBoolean("membershipAutoRenew")
+                val paymentMethodFromDoc = snapshot.getString("lastPaymentMethod") ?: snapshot.getString("paymentMethod")
+                val stripeSubId = snapshot.getString("stripeSubscriptionId")
+                val paypalSubId = snapshot.getString("paypalSubscriptionId")
+
+                if (!tierFromDoc.isNullOrEmpty()) {
+                    _membershipTier.value = tierFromDoc
+                    sessionManager.saveMembershipTier(tierFromDoc)
+                }
+
+                if (!cycleFromDoc.isNullOrEmpty()) {
+                    _membershipBillingCycle.value = cycleFromDoc
+                    sessionManager.saveMembershipBillingCycle(cycleFromDoc)
+                }
+
+                if (expiryTimestampFromDoc != null && expiryTimestampFromDoc > 0) {
+                    _membershipExpiryTimestamp.value = expiryTimestampFromDoc
+                    sessionManager.saveMembershipExpiryTimestamp(expiryTimestampFromDoc)
+                }
+
+                if (autoRenewFromDoc != null) {
+                    _membershipAutoRenew.value = autoRenewFromDoc
+                    sessionManager.saveMembershipAutoRenew(autoRenewFromDoc)
+                }
+
+                if (!paymentMethodFromDoc.isNullOrEmpty()) {
+                    sessionManager.saveLastPaymentMethod(paymentMethodFromDoc)
+                }
+
+                if (!stripeSubId.isNullOrEmpty()) {
+                    sessionManager.saveStripeSubscriptionId(stripeSubId)
+                }
+
+                if (!paypalSubId.isNullOrEmpty()) {
+                    sessionManager.savePaypalSubscriptionId(paypalSubId)
+                }
+
+                // Determine active vs expired state in real time
+                val nowTime = System.currentTimeMillis()
+                val effectiveExpiry = expiryTimestampFromDoc ?: sessionManager.getMembershipExpiryTimestamp()
+                val isTierExpired = effectiveExpiry in 1..nowTime && (tierFromDoc != "STANDARD" || membershipStatusStr.equals("EXPIRED", ignoreCase = true))
+
+                val resolvedStatus = when {
+                    isRevokedOrSuspended -> "SUSPENDED"
+                    membershipStatusStr.equals("PAST_DUE", ignoreCase = true) -> "PAST_DUE"
+                    isTierExpired || membershipStatusStr.equals("EXPIRED", ignoreCase = true) -> "EXPIRED"
+                    membershipStatusStr.equals("CANCELED", ignoreCase = true) -> "CANCELED"
+                    (tierFromDoc == "EMERALD" || tierFromDoc == "WAQF_PATRON" || membershipStatusStr.equals("ACTIVE", ignoreCase = true) || membershipStatusStr.equals("VERIFIED_PREMIUM", ignoreCase = true)) && !isTierExpired -> "ACTIVE"
+                    else -> "STANDARD"
+                }
+
+                _membershipStatus.value = resolvedStatus
+                sessionManager.saveMembershipStatus(resolvedStatus)
+
+                if (resolvedStatus == "ACTIVE") {
+                    _isUserVerified.value = true
+                    _verificationStatus.value = "VERIFIED_PREMIUM"
+                    sessionManager.setVerifiedStatus(true)
+                    sessionManager.saveVerificationStatus("VERIFIED_PREMIUM")
+                } else if (resolvedStatus == "EXPIRED") {
+                    _isUserVerified.value = false
+                    _verificationStatus.value = "EXPIRED"
+                    sessionManager.setVerifiedStatus(false)
+                    sessionManager.saveVerificationStatus("EXPIRED")
                 }
 
                 val now = System.currentTimeMillis()
@@ -2601,6 +2777,296 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
             _localBackupStatusMessage.value = "Fichier ${file.name} supprimé."
         } catch (e: Exception) {
             _localBackupStatusMessage.value = "Erreur lors de la suppression : ${e.localizedMessage}"
+        }
+    }
+
+    // ==========================================
+    // Membership & Subscription Management
+    // ==========================================
+
+    fun updateMembershipTier(
+        tier: String,
+        billingCycle: String = "ANNUAL",
+        paymentMethod: String = "CARD",
+        transactionRef: String = "",
+        onSuccess: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val sessionManager = com.example.network.ApiClient.getSessionManager()
+            sessionManager.saveMembershipTier(tier)
+            sessionManager.saveMembershipBillingCycle(billingCycle)
+            sessionManager.saveLastPaymentMethod(paymentMethod)
+            if (transactionRef.isNotEmpty()) {
+                sessionManager.saveLastTransactionRef(transactionRef)
+            }
+
+            val durationMillis = if (billingCycle.equals("ANNUAL", ignoreCase = true)) {
+                365L * 24 * 60 * 60 * 1000
+            } else {
+                30L * 24 * 60 * 60 * 1000
+            }
+            val expiry = System.currentTimeMillis() + durationMillis
+            sessionManager.saveMembershipExpiryTimestamp(expiry)
+
+            _membershipTier.value = tier
+            _membershipBillingCycle.value = billingCycle
+            _membershipExpiryTimestamp.value = expiry
+
+            // Automatically grant PDF & security privileges if upgraded to Emerald or Waqf
+            if (tier != "STANDARD") {
+                sessionManager.saveHasPaidForPdf(true)
+                _hasPaidForPdf.value = true
+                val methodLabel = when (paymentMethod.uppercase()) {
+                    "PAYPAL" -> "PayPal"
+                    "CRYPTO" -> "Crypto (USDT/BTC)"
+                    "GOOGLE_PAY" -> "Google Pay"
+                    else -> "Carte Bancaire"
+                }
+                logActivity("MEMBERSHIP_UPGRADE", "Adhésion mise à niveau vers $tier ($billingCycle) via $methodLabel")
+            }
+
+            // Sync with Firestore if authenticated
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                val subData = mapOf(
+                    "membershipTier" to tier,
+                    "membershipCycle" to billingCycle,
+                    "membershipExpiry" to expiry,
+                    "membershipStatus" to if (tier == "STANDARD") "STANDARD" else "VERIFIED_PREMIUM",
+                    "paymentMethod" to paymentMethod,
+                    "transactionRef" to transactionRef,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .set(subData, com.google.firebase.firestore.SetOptions.merge())
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    /**
+     * Executes subscription renewal or plan upgrade via the Stripe Android SDK gateway.
+     * Safely updates local session, generates payment ledger entries, and syncs Firestore.
+     */
+    fun processStripeSubscriptionRenewal(
+        context: Context,
+        cardHolderName: String,
+        cardNumber: String,
+        expMonth: Int,
+        expYear: Int,
+        cvc: String,
+        tier: String,
+        billingCycle: String,
+        amountEur: Double,
+        isRenewal: Boolean = false,
+        onResult: (com.example.payment.StripePaymentResult) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val gateway = com.example.payment.StripePaymentGateway.getInstance(context)
+            val result = gateway.processSubscriptionPayment(
+                cardHolderName = cardHolderName,
+                cardNumber = cardNumber,
+                expMonth = expMonth,
+                expYear = expYear,
+                cvc = cvc,
+                tier = tier,
+                billingCycle = billingCycle,
+                amountEur = amountEur,
+                isRenewal = isRenewal
+            )
+
+            if (result is com.example.payment.StripePaymentResult.Success) {
+                _membershipTier.value = result.tier
+                _membershipBillingCycle.value = result.billingCycle
+                _membershipExpiryTimestamp.value = result.expiryTimestamp
+                _membershipAutoRenew.value = true
+                if (result.tier != "STANDARD") {
+                    _hasPaidForPdf.value = true
+                }
+                val renewalPrefix = if (result.isRenewal) "Renouvellement" else "Souscription"
+                logActivity("STRIPE_PAYMENT_SUCCESS", "$renewalPrefix ${result.tier} (${result.billingCycle}) validé par Stripe SDK [${result.paymentIntentId}]")
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(result)
+            }
+        }
+    }
+
+    fun updateMembershipAutoRenew(autoRenew: Boolean) {
+        val sessionManager = com.example.network.ApiClient.getSessionManager()
+        sessionManager.saveMembershipAutoRenew(autoRenew)
+        _membershipAutoRenew.value = autoRenew
+        logActivity("MEMBERSHIP_AUTO_RENEW", "Renouvellement automatique : $autoRenew")
+    }
+
+    fun addWaqfContribution(amount: Float, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val sessionManager = com.example.network.ApiClient.getSessionManager()
+            val newTotal = sessionManager.getWaqfContributionTotal() + amount
+            sessionManager.saveWaqfContributionTotal(newTotal)
+            _waqfContributionTotal.value = newTotal
+            logActivity("WAQF_CONTRIBUTION", "Contribution Waqf de $amount € enregistrée")
+
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                val donationData = mapOf(
+                    "amount" to amount,
+                    "timestamp" to System.currentTimeMillis(),
+                    "category" to "WAQF_SOLIDARITY"
+                )
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("waqf_donations").add(donationData)
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun cancelMembership(onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val sessionManager = com.example.network.ApiClient.getSessionManager()
+            sessionManager.saveMembershipTier("STANDARD")
+            _membershipTier.value = "STANDARD"
+            logActivity("MEMBERSHIP_CANCEL", "Adhésion rétrogradée au plan Standard")
+
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .set(mapOf("membershipTier" to "STANDARD"), com.google.firebase.firestore.SetOptions.merge())
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    // --- Payment Reception & Payout Management Methods ---
+    fun updatePayoutConfig(config: com.example.data.PayoutConfig, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val sessionManager = com.example.network.ApiClient.getSessionManager()
+            sessionManager.savePayoutConfig(
+                accountHolderName = config.accountHolderName,
+                iban = config.iban,
+                bicSwift = config.bicSwift,
+                bankName = config.bankName,
+                stripeAccountId = config.stripeAccountId,
+                stripePaymentLink = config.stripePaymentLink,
+                paypalEmail = config.paypalEmail,
+                paypalMeUsername = config.paypalMeUsername,
+                cryptoUsdtAddress = config.cryptoUsdtAddress,
+                cryptoUsdtNetwork = config.cryptoUsdtNetwork,
+                cryptoBtcAddress = config.cryptoBtcAddress,
+                cryptoEthAddress = config.cryptoEthAddress,
+                defaultCurrency = config.defaultCurrency,
+                organizationType = config.organizationType,
+                instantQrEnabled = config.instantQrEnabled,
+                autoIssueReceipt = config.autoIssueReceipt
+            )
+            _payoutConfig.value = config.copy(isConfigured = true, updatedAt = System.currentTimeMillis())
+            logActivity("PAYOUT_CONFIG_UPDATED", "Paramètres de réception des paiements actualisés (${config.organizationType})")
+
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                val configMap = mapOf(
+                    "accountHolderName" to config.accountHolderName,
+                    "iban" to config.iban,
+                    "bicSwift" to config.bicSwift,
+                    "bankName" to config.bankName,
+                    "stripeAccountId" to config.stripeAccountId,
+                    "stripePaymentLink" to config.stripePaymentLink,
+                    "paypalEmail" to config.paypalEmail,
+                    "paypalMeUsername" to config.paypalMeUsername,
+                    "cryptoUsdtAddress" to config.cryptoUsdtAddress,
+                    "cryptoUsdtNetwork" to config.cryptoUsdtNetwork,
+                    "cryptoBtcAddress" to config.cryptoBtcAddress,
+                    "cryptoEthAddress" to config.cryptoEthAddress,
+                    "defaultCurrency" to config.defaultCurrency,
+                    "organizationType" to config.organizationType,
+                    "instantQrEnabled" to config.instantQrEnabled,
+                    "autoIssueReceipt" to config.autoIssueReceipt,
+                    "isConfigured" to true,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("payout_settings").document("default")
+                    .set(configMap, com.google.firebase.firestore.SetOptions.merge())
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun recordReceivedPayment(payment: com.example.data.ReceivedPaymentRecord, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val currentList = _receivedPayments.value.toMutableList()
+            currentList.add(0, payment)
+            _receivedPayments.value = currentList
+
+            // Persist JSON locally
+            try {
+                val moshi = com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
+                val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.example.data.ReceivedPaymentRecord::class.java)
+                val adapter = moshi.adapter<List<com.example.data.ReceivedPaymentRecord>>(type)
+                val json = adapter.toJson(currentList)
+                com.example.network.ApiClient.getSessionManager().saveReceivedPaymentsJson(json)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            logActivity("PAYMENT_RECEIVED", "Paiement reçu de ${payment.amount} ${payment.currency} (${payment.motive})")
+
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                val paymentMap = mapOf(
+                    "id" to payment.id,
+                    "amount" to payment.amount,
+                    "currency" to payment.currency,
+                    "payerName" to payment.payerName,
+                    "motive" to payment.motive,
+                    "paymentMethod" to payment.paymentMethod,
+                    "timestamp" to payment.timestamp,
+                    "status" to payment.status,
+                    "referenceCode" to payment.referenceCode,
+                    "taxReceiptEligible" to payment.taxReceiptEligible
+                )
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("received_payments").document(payment.id)
+                    .set(paymentMap)
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun deleteReceivedPayment(paymentId: String) {
+        viewModelScope.launch {
+            val currentList = _receivedPayments.value.filter { it.id != paymentId }
+            _receivedPayments.value = currentList
+            try {
+                val moshi = com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
+                val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.example.data.ReceivedPaymentRecord::class.java)
+                val adapter = moshi.adapter<List<com.example.data.ReceivedPaymentRecord>>(type)
+                val json = adapter.toJson(currentList)
+                com.example.network.ApiClient.getSessionManager().saveReceivedPaymentsJson(json)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .collection("received_payments").document(paymentId).delete()
+            }
         }
     }
 }

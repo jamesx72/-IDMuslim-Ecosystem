@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.CameraAlt
@@ -86,7 +87,8 @@ fun ProfileScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToDocumentScanner: () -> Unit = {},
-    onNavigateToQibla: () -> Unit = {}
+    onNavigateToQibla: () -> Unit = {},
+    onNavigateToDigitalWallet: () -> Unit = {}
 ) {
     val firebaseUser = remember { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser }
     val cachedUserProfile by viewModel.cachedUserProfile.collectAsStateWithLifecycle()
@@ -183,14 +185,24 @@ fun ProfileScreen(
     var profileLicense by remember(cachedLicense) { mutableStateOf(cachedLicense ?: "") }
     var isAuthenticated by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableStateOf(0) }
+    var showMembershipDialog by remember { mutableStateOf(false) }
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showSecurePdfDialog by remember { mutableStateOf(false) }
+    var showGoogleWalletDialog by remember { mutableStateOf(false) }
+    var showNfcHceDialog by remember { mutableStateOf(false) }
     var showVerificationQrDialog by remember { mutableStateOf(false) }
     var showSignatureDialog by remember { mutableStateOf(false) }
+    var showPaymentReceptionDialog by remember { mutableStateOf(false) }
     var signatureData by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showIdReadyAlert by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
     var showFaqDialog by remember { mutableStateOf(false) }
+
+    val membershipTier by viewModel.membershipTier.collectAsState()
+    val membershipStatus by viewModel.membershipStatus.collectAsState()
+    val membershipBillingCycle by viewModel.membershipBillingCycle.collectAsState()
+    val membershipExpiryTimestamp by viewModel.membershipExpiryTimestamp.collectAsState()
+    val waqfContributionTotal by viewModel.waqfContributionTotal.collectAsState()
 
     val isCoachMarkCompleted by viewModel.isCoachMarkCompleted.collectAsState()
     var showCoachMarkOverlay by remember { mutableStateOf(false) }
@@ -504,6 +516,62 @@ fun ProfileScreen(
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("Adhésion & Club Privilège") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.WorkspacePremium,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFD700)
+                                )
+                            },
+                            onClick = {
+                                showProfileMenu = false
+                                showMembershipDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Portefeuille Chiffré (SQLCipher)") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.EnhancedEncryption,
+                                    contentDescription = null,
+                                    tint = Color(0xFF10B981)
+                                )
+                            },
+                            onClick = {
+                                showProfileMenu = false
+                                onNavigateToDigitalWallet()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Google Wallet (Pay API Pass)") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalanceWallet,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8)
+                                )
+                            },
+                            onClick = {
+                                showProfileMenu = false
+                                showGoogleWalletDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("NFC Sans-Contact (HCE)") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Nfc,
+                                    contentDescription = null,
+                                    tint = Color(0xFF10B981)
+                                )
+                            },
+                            onClick = {
+                                showProfileMenu = false
+                                showNfcHceDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("Guide interactif (Tutoriel)") },
                             leadingIcon = {
                                 Icon(
@@ -664,6 +732,9 @@ fun ProfileScreen(
                                     lastSyncTime = lastBackgroundSyncTime,
                                     isSuspended = isAccountSuspended,
                                     isSyncing = isCardSyncing,
+                                    membershipTier = membershipTier,
+                                    membershipStatus = membershipStatus,
+                                    onMembershipClick = { showMembershipDialog = true },
                                     onPhotoClick = { showPhotoMenu = true },
                                     onDownloadPdfClick = { showSecurePdfDialog = true },
                                     onEmergencyClick = {
@@ -836,53 +907,179 @@ fun ProfileScreen(
                                 }
                             }
                         
+                        val actionScope = rememberCoroutineScope()
+
+                        // Membership & Club Privilège Banner
+                        val isEmeraldTier = membershipTier.equals("EMERALD", ignoreCase = true) || membershipTier.equals("VERIFIED_PREMIUM", ignoreCase = true)
+                        val isWaqfTier = membershipTier.equals("WAQF_PATRON", ignoreCase = true) || membershipTier.equals("WAQF", ignoreCase = true)
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 6.dp)
+                                .clickable {
+                                    HapticHelper.performClick(context, haptic)
+                                    showMembershipDialog = true
+                                },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isWaqfTier) Color(0xFFFFFBEB) else if (isEmeraldTier) Color(0xFFECFDF5) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.5.dp,
+                                if (isWaqfTier) Color(0xFFD97706) else if (isEmeraldTier) Color(0xFF10B981) else MaterialTheme.colorScheme.outlineVariant
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (isWaqfTier) Color(0xFFD97706).copy(alpha = 0.2f) else if (isEmeraldTier) Color(0xFF10B981).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = if (isWaqfTier) Icons.Default.VolunteerActivism else if (isEmeraldTier) Icons.Default.WorkspacePremium else Icons.Default.CardMembership,
+                                                contentDescription = null,
+                                                tint = if (isWaqfTier) Color(0xFFD97706) else if (isEmeraldTier) Color(0xFF059669) else MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(
+                                                text = when {
+                                                    isWaqfTier -> "Adhésion Mécène Waqf"
+                                                    isEmeraldTier -> "Adhésion Émeraude Privilège"
+                                                    else -> "Adhésion Standard Gratuit"
+                                                },
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isWaqfTier) Color(0xFF92400E) else if (isEmeraldTier) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = if (isWaqfTier) Color(0xFFD97706) else if (isEmeraldTier) Color(0xFF059669) else Color(0xFF64748B)
+                                            ) {
+                                                Text(
+                                                    text = if (isWaqfTier) "WAQF" else if (isEmeraldTier) "PRO" else "FREE",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = if (isWaqfTier || isEmeraldTier) "Hologramme, Wallet & PDF illimités • Gérer" else "Passer à Émeraude & Mécénat Waqf",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (isWaqfTier) Color(0xFFB45309) else if (isEmeraldTier) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Gérer adhésion",
+                                    tint = if (isWaqfTier) Color(0xFFD97706) else if (isEmeraldTier) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        DashboardActionCard(
+                            icon = Icons.Default.EnhancedEncryption,
+                            title = Translations.get(language, "wallet_title"),
+                            subtitle = Translations.get(language, "wallet_card_desc"),
+                            onClick = {
+                                HapticHelper.performClick(context, haptic)
+                                onNavigateToDigitalWallet()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 6.dp)
+                                .testTag("open_digital_wallet_card")
+                        )
+
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             DashboardActionCard(
                                 icon = Icons.Default.AccountBalanceWallet,
-                                title = Translations.get(language, "add_to_wallet"),
+                                title = "Google Wallet",
+                                subtitle = "Pass Pay API & Code-barres",
                                 onClick = {
-                                    com.example.utils.DigitalPassManager.exportAndSharePass(
-                                        context = context,
-                                        fullName = profileFullName,
-                                        memberId = memberId,
-                                        dateOfBirth = profileDateOfBirth,
-                                        verificationStatus = verificationStatus,
-                                        residency = profileResidency,
-                                        community = profileCommunityAffiliation
-                                    )
+                                    showGoogleWalletDialog = true
                                 },
                                 modifier = Modifier.weight(1f)
                             )
 
                             DashboardActionCard(
+                                icon = Icons.Default.Nfc,
+                                title = "NFC Sans-Contact",
+                                subtitle = "Émulation HCE ISO 14443",
+                                onClick = {
+                                    showNfcHceDialog = true
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            DashboardActionCard(
                                 icon = Icons.Default.Explore,
                                 title = "Boussole Qibla",
+                                subtitle = "Orientation Kaaba en direct",
                                 onClick = {
                                     onNavigateToQibla()
                                 },
                                 modifier = Modifier.weight(1f)
                             )
-                        }
-                        
-                        val actionScope = rememberCoroutineScope()
-                        DashboardActionCard(
-                            icon = Icons.Default.Security,
-                            title = "Générer Token de Vérification",
-                            subtitle = "Jeton QR dynamique à usage unique",
-                            onClick = {
-                                actionScope.launch {
-                                    val authResult = com.example.utils.BiometricHelper.authenticate(context)
-                                    if (authResult) {
+
+                            DashboardActionCard(
+                                icon = Icons.Default.QrCode,
+                                title = "Jeton QR Sécurisé",
+                                subtitle = "Token éphémère d'accès",
+                                onClick = {
+                                    val session = com.example.network.ApiClient.getSessionManager()
+                                    if (session.isBiometricLockEnabled() && com.example.security.BiometricHelper.canAuthenticate(context)) {
+                                        actionScope.launch {
+                                            val auth = com.example.utils.BiometricHelper.authenticate(context)
+                                            if (auth) showVerificationQrDialog = true
+                                        }
+                                    } else {
                                         showVerificationQrDialog = true
                                     }
-                                }
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        
+                        DashboardActionCard(
+                            icon = Icons.Default.AccountBalance,
+                            title = "Réception de Paiements & Encaissements",
+                            subtitle = "RIB SEPA, Stripe Connect, PayPal & Collecte par QR Code",
+                            onClick = {
+                                showPaymentReceptionDialog = true
                             },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
                         )
-                        
+
                         DashboardActionCard(
                             icon = Icons.Default.PictureAsPdf,
                             title = "Générer PDF Sécurisé & Imprimable",
@@ -1591,6 +1788,42 @@ fun ProfileScreen(
         )
     }
 
+    if (showGoogleWalletDialog) {
+        com.example.ui.components.GoogleWalletExportDialog(
+            fullName = profileFullName.ifBlank { cachedFullName ?: displayName },
+            memberId = memberId,
+            dateOfBirth = profileDateOfBirth.ifBlank { cachedDob ?: "" },
+            verificationStatus = verificationStatus,
+            residency = profileResidency.ifBlank { cachedResidency ?: "" },
+            communityAffiliation = profileCommunityAffiliation.ifBlank { cachedCommunityAffiliation ?: "" },
+            expiryDate = expiryDate,
+            onDismiss = { showGoogleWalletDialog = false }
+        )
+    }
+
+    if (showNfcHceDialog) {
+        val nfcUid = remember(memberId) {
+            val hash = (memberId.hashCode().toLong() and 0xFFFFFFFFL).toString(16).uppercase().padStart(8, '0')
+            "04:${hash.substring(0, 2)}:${hash.substring(2, 4)}:${hash.substring(4, 6)}:${hash.substring(6, 8)}:E2"
+        }
+        val shaSeal = remember(memberId, profileFullName, verificationStatus) {
+            val raw = "IDMUSLIM:$memberId:$verificationStatus:$profileFullName"
+            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
+            digest.joinToString("") { "%02x".format(it) }.take(16).uppercase()
+        }
+        com.example.ui.components.NfcHostCardEmulationDialog(
+            memberId = memberId,
+            fullName = profileFullName.ifBlank { cachedFullName ?: displayName },
+            verificationStatus = verificationStatus,
+            dateOfBirth = profileDateOfBirth.ifBlank { cachedDob ?: "" },
+            residency = profileResidency.ifBlank { cachedResidency ?: "France" },
+            communityAffiliation = profileCommunityAffiliation.ifBlank { cachedCommunityAffiliation ?: "IDMuslim Global" },
+            nfcChipUid = nfcUid,
+            cryptoHash = shaSeal,
+            onDismiss = { showNfcHceDialog = false }
+        )
+    }
+
     if (showPaymentDialog) {
         PaymentDialog(
             onDismiss = { showPaymentDialog = false },
@@ -1612,6 +1845,21 @@ fun ProfileScreen(
         com.example.ui.components.NotificationsDialog(
             notifications = notifications,
             onDismiss = { showNotificationsDialog = false }
+        )
+    }
+
+    if (showMembershipDialog) {
+        com.example.ui.components.MembershipSubscriptionDialog(
+            viewModel = viewModel,
+            language = language,
+            onDismiss = { showMembershipDialog = false }
+        )
+    }
+
+    if (showPaymentReceptionDialog) {
+        com.example.ui.components.PaymentReceptionConfigDialog(
+            viewModel = viewModel,
+            onDismiss = { showPaymentReceptionDialog = false }
         )
     }
 

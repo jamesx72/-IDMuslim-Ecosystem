@@ -59,13 +59,18 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.material.icons.filled.VolunteerActivism
+import androidx.compose.material.icons.filled.CardMembership
+import androidx.compose.material.icons.filled.AccountBalance
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: EventViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToEditProfile: () -> Unit = {}
+    onNavigateToEditProfile: () -> Unit = {},
+    onNavigateToDigitalWallet: () -> Unit = {}
 ) {
     val language by viewModel.language.collectAsState()
     val cardTheme by viewModel.cardTheme.collectAsState()
@@ -90,6 +95,11 @@ fun SettingsScreen(
     val isBackgroundSyncEnabled by viewModel.isBackgroundSyncEnabled.collectAsState()
     val isRealtimeSyncActive by viewModel.isRealtimeSyncActive.collectAsState()
     val syncStatusMessage by viewModel.syncStatusMessage.collectAsState()
+    val membershipTier by viewModel.membershipTier.collectAsState()
+    val membershipBillingCycle by viewModel.membershipBillingCycle.collectAsState()
+    var showMembershipDialog by remember { mutableStateOf(false) }
+    var showPaymentReceptionDialog by remember { mutableStateOf(false) }
+    val payoutConfig by viewModel.payoutConfig.collectAsState()
 
     Scaffold(
         topBar = {
@@ -147,6 +157,203 @@ fun SettingsScreen(
                         }
                     }
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .clickable { onNavigateToDigitalWallet() },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(Translations.get(language, "wallet_title"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(Translations.get(language, "wallet_card_desc"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            // Membership & Subscription Section
+            Text(
+                text = "Adhésion & Formules d'Abonnement",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            val isEmeraldTier = membershipTier.equals("EMERALD", ignoreCase = true) || membershipTier.equals("VERIFIED_PREMIUM", ignoreCase = true)
+            val isWaqfTier = membershipTier.equals("WAQF_PATRON", ignoreCase = true) || membershipTier.equals("WAQF", ignoreCase = true)
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .clickable {
+                        HapticHelper.performClick(context, haptic)
+                        showMembershipDialog = true
+                    },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isWaqfTier) Color(0xFFFFFBEB) else if (isEmeraldTier) Color(0xFFECFDF5) else MaterialTheme.colorScheme.surfaceVariant
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isWaqfTier) Color(0xFFD97706).copy(alpha = 0.5f) else if (isEmeraldTier) Color(0xFF10B981).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(
+                            imageVector = if (isWaqfTier) Icons.Default.VolunteerActivism else if (isEmeraldTier) Icons.Default.WorkspacePremium else Icons.Default.CardMembership,
+                            contentDescription = null,
+                            tint = if (isWaqfTier) Color(0xFFD97706) else if (isEmeraldTier) Color(0xFF059669) else MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = when {
+                                        isWaqfTier -> "Adhésion Mécène Waqf"
+                                        isEmeraldTier -> "Adhésion Émeraude Privilège"
+                                        else -> "Adhésion Standard Gratuit"
+                                    },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isWaqfTier) Color(0xFF92400E) else if (isEmeraldTier) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isWaqfTier) Color(0xFFD97706) else if (isEmeraldTier) Color(0xFF059669) else Color(0xFF64748B)
+                                ) {
+                                    Text(
+                                        text = if (isWaqfTier) "WAQF" else if (isEmeraldTier) "PRO" else "FREE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (isWaqfTier || isEmeraldTier) "Gérer la formule, le cycle et le mécénat" else "Débloquer PDF illimité, Wallet, NFC & Waqf",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isWaqfTier) Color(0xFFB45309) else if (isEmeraldTier) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = if (isWaqfTier) Color(0xFFD97706) else if (isEmeraldTier) Color(0xFF059669) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Payment Reception & Payout Gateway Section
+            Text(
+                text = "Réception & Encaissement des Paiements",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .clickable {
+                        HapticHelper.performClick(context, haptic)
+                        showPaymentReceptionDialog = true
+                    },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF047857).copy(alpha = 0.08f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    Color(0xFF059669).copy(alpha = 0.35f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF047857).copy(alpha = 0.15f),
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalance,
+                                    contentDescription = null,
+                                    tint = Color(0xFF047857),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "Canaux de Réception & Collecte",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF065F46)
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF059669)
+                                ) {
+                                    Text(
+                                        text = if (payoutConfig.isConfigured) "ACTIF" else "CONFIGURER",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (payoutConfig.iban.isNotBlank()) "IBAN ${payoutConfig.iban.take(8)}... • Stripe & QR POS actifs" else "IBAN SEPA, Stripe Connect, PayPal & Crypto USDT",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF047857)
+                            )
+                        }
+                    }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = Color(0xFF047857)
+                    )
                 }
             }
 
@@ -1628,6 +1835,21 @@ fun SettingsScreen(
                             Text(Translations.get(language, "cancel"))
                         }
                     }
+                )
+            }
+
+            if (showMembershipDialog) {
+                com.example.ui.components.MembershipSubscriptionDialog(
+                    viewModel = viewModel,
+                    language = language,
+                    onDismiss = { showMembershipDialog = false }
+                )
+            }
+
+            if (showPaymentReceptionDialog) {
+                com.example.ui.components.PaymentReceptionConfigDialog(
+                    viewModel = viewModel,
+                    onDismiss = { showPaymentReceptionDialog = false }
                 )
             }
         }

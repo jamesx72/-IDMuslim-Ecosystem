@@ -73,6 +73,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object CreateEvent : Screen("create_event", "Créer un événement", null)
     object EditProfile : Screen("edit_profile", "Modifier le Profil", null)
     object DocumentScanner : Screen("document_scanner", "Scanner un document", null)
+    object DigitalWallet : Screen("digital_wallet", "Portefeuille Chiffré", Icons.Default.EnhancedEncryption)
     object EventDetail : Screen("event_detail/{eventId}", "Détails", null) {
         fun createRoute(eventId: Int) = "event_detail/$eventId"
     }
@@ -233,7 +234,17 @@ fun IDMuslimApp(startRoute: String = "auth") {
                             },
                             onNavigateToQibla = {
                                 navController.navigate(Screen.Qibla.route)
+                            },
+                            onNavigateToDigitalWallet = {
+                                navController.navigate(Screen.DigitalWallet.route)
                             }
+                        )
+                    }
+                    composable(Screen.DigitalWallet.route) {
+                        com.example.ui.screens.DigitalWalletScreen(
+                            eventViewModel = eventViewModel,
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToDocumentScanner = { navController.navigate(Screen.DocumentScanner.route) }
                         )
                     }
                     composable(Screen.Qibla.route) {
@@ -273,7 +284,8 @@ fun IDMuslimApp(startRoute: String = "auth") {
                         SettingsScreen(
                             viewModel = eventViewModel,
                             onNavigateBack = { navController.popBackStack() },
-                            onNavigateToEditProfile = { navController.navigate(Screen.EditProfile.route) }
+                            onNavigateToEditProfile = { navController.navigate(Screen.EditProfile.route) },
+                            onNavigateToDigitalWallet = { navController.navigate(Screen.DigitalWallet.route) }
                         )
                     }
                     composable(Screen.Events.route) {

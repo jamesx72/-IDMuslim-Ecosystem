@@ -237,7 +237,18 @@ object Translations {
                 "mfa_code_prompt" to "Entrez le code SMS reçu.",
                 "sms_code" to "Code SMS",
                 "send_sms" to "Envoyer le SMS",
-                "validate" to "Valider"
+                "validate" to "Valider",
+                "nav_digital_wallet" to "Portefeuille",
+                "wallet_title" to "Portefeuille Chiffré",
+                "wallet_subtitle" to "Stockage local SQLCipher AES-256",
+                "wallet_card_desc" to "Pièces d'identité & secrets chiffrés (SQLCipher)",
+                "wallet_tab_docs" to "Pièces d'Identité",
+                "wallet_tab_secrets" to "Infos Sensibles",
+                "wallet_tab_audit" to "Audit SQLCipher",
+                "wallet_import_profile" to "Importer du Profil",
+                "wallet_scan_ocr" to "Scanner OCR",
+                "wallet_lock_now" to "Verrouiller le coffre",
+                "wallet_unlock_cta" to "Déverrouiller par Biométrie"
             ),
             "en" to mapOf(
                 "identity_card" to "IDENTITY CARD",
@@ -1177,7 +1188,18 @@ object Translations {
                 "mfa_code_prompt" to "Enter the SMS code received.",
                 "sms_code" to "SMS Code",
                 "send_sms" to "Send SMS",
-                "validate" to "Validate"
+                "validate" to "Validate",
+                "nav_digital_wallet" to "Wallet",
+                "wallet_title" to "Encrypted Wallet",
+                "wallet_subtitle" to "SQLCipher AES-256 Local Vault",
+                "wallet_card_desc" to "Encrypted ID documents & sensitive info (SQLCipher)",
+                "wallet_tab_docs" to "ID Documents",
+                "wallet_tab_secrets" to "Sensitive Info",
+                "wallet_tab_audit" to "SQLCipher Audit",
+                "wallet_import_profile" to "Import Profile",
+                "wallet_scan_ocr" to "OCR Scanner",
+                "wallet_lock_now" to "Lock Vault",
+                "wallet_unlock_cta" to "Unlock with Biometrics"
             )
         )
     fun get(lang: String, key: String): String {

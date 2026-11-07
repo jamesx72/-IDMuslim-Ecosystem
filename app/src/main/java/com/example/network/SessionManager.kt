@@ -556,5 +556,189 @@ class SessionManager(context: Context) {
     fun isCoachMarkCompleted(): Boolean {
         return prefs.getBoolean("KEY_COACHMARK_COMPLETED", false)
     }
+
+    // Membership & Subscription Methods
+    fun saveMembershipTier(tier: String) {
+        prefs.edit().putString("KEY_MEMBERSHIP_TIER", tier).apply()
+        addSecurityAuditLog("Abonnement", "Formule modifiée vers $tier")
+    }
+
+    fun getMembershipTier(): String {
+        return prefs.getString("KEY_MEMBERSHIP_TIER", "STANDARD") ?: "STANDARD"
+    }
+
+    fun saveMembershipBillingCycle(cycle: String) {
+        prefs.edit().putString("KEY_MEMBERSHIP_BILLING_CYCLE", cycle).apply()
+    }
+
+    fun getMembershipBillingCycle(): String {
+        return prefs.getString("KEY_MEMBERSHIP_BILLING_CYCLE", "ANNUAL") ?: "ANNUAL"
+    }
+
+    fun saveMembershipExpiryTimestamp(timestamp: Long) {
+        prefs.edit().putLong("KEY_MEMBERSHIP_EXPIRY_TIMESTAMP", timestamp).apply()
+    }
+
+    fun getMembershipExpiryTimestamp(): Long {
+        val defaultExpiry = System.currentTimeMillis() + (365L * 24 * 60 * 60 * 1000)
+        return prefs.getLong("KEY_MEMBERSHIP_EXPIRY_TIMESTAMP", defaultExpiry)
+    }
+
+    fun saveMembershipAutoRenew(autoRenew: Boolean) {
+        prefs.edit().putBoolean("KEY_MEMBERSHIP_AUTO_RENEW", autoRenew).apply()
+    }
+
+    fun isMembershipAutoRenew(): Boolean {
+        return prefs.getBoolean("KEY_MEMBERSHIP_AUTO_RENEW", true)
+    }
+
+    fun saveWaqfContributionTotal(amount: Float) {
+        prefs.edit().putFloat("KEY_WAQF_CONTRIBUTION_TOTAL", amount).apply()
+    }
+
+    fun getWaqfContributionTotal(): Float {
+        return prefs.getFloat("KEY_WAQF_CONTRIBUTION_TOTAL", 0f)
+    }
+
+    fun saveMembershipStatus(status: String) {
+        prefs.edit().putString("KEY_MEMBERSHIP_STATUS", status).apply()
+    }
+
+    fun getMembershipStatus(): String {
+        return prefs.getString("KEY_MEMBERSHIP_STATUS", "ACTIVE") ?: "ACTIVE"
+    }
+
+    fun saveStripeSubscriptionId(subId: String) {
+        prefs.edit().putString("KEY_STRIPE_SUB_ID", subId).apply()
+    }
+
+    fun getStripeSubscriptionId(): String {
+        return prefs.getString("KEY_STRIPE_SUB_ID", "") ?: ""
+    }
+
+    fun savePaypalSubscriptionId(subId: String) {
+        prefs.edit().putString("KEY_PAYPAL_SUB_ID", subId).apply()
+    }
+
+    fun getPaypalSubscriptionId(): String {
+        return prefs.getString("KEY_PAYPAL_SUB_ID", "") ?: ""
+    }
+
+    fun saveLastPaymentMethod(method: String) {
+        prefs.edit().putString("KEY_LAST_PAYMENT_METHOD", method).apply()
+    }
+
+    fun getLastPaymentMethod(): String {
+        return prefs.getString("KEY_LAST_PAYMENT_METHOD", "CARD") ?: "CARD"
+    }
+
+    fun saveLastTransactionRef(ref: String) {
+        prefs.edit().putString("KEY_LAST_TX_REF", ref).apply()
+    }
+
+    fun getLastTransactionRef(): String {
+        return prefs.getString("KEY_LAST_TX_REF", "") ?: ""
+    }
+
+    // --- Payout & Payment Reception Configuration ---
+    fun savePayoutConfig(
+        accountHolderName: String,
+        iban: String,
+        bicSwift: String,
+        bankName: String,
+        stripeAccountId: String,
+        stripePaymentLink: String,
+        paypalEmail: String,
+        paypalMeUsername: String,
+        cryptoUsdtAddress: String,
+        cryptoUsdtNetwork: String,
+        cryptoBtcAddress: String,
+        cryptoEthAddress: String,
+        defaultCurrency: String,
+        organizationType: String,
+        instantQrEnabled: Boolean,
+        autoIssueReceipt: Boolean
+    ) {
+        prefs.edit()
+            .putString("KEY_PAYOUT_ACCOUNT_HOLDER", accountHolderName)
+            .putString("KEY_PAYOUT_IBAN", iban)
+            .putString("KEY_PAYOUT_BIC", bicSwift)
+            .putString("KEY_PAYOUT_BANK_NAME", bankName)
+            .putString("KEY_PAYOUT_STRIPE_ACCT", stripeAccountId)
+            .putString("KEY_PAYOUT_STRIPE_LINK", stripePaymentLink)
+            .putString("KEY_PAYOUT_PAYPAL_EMAIL", paypalEmail)
+            .putString("KEY_PAYOUT_PAYPAL_ME", paypalMeUsername)
+            .putString("KEY_PAYOUT_CRYPTO_USDT", cryptoUsdtAddress)
+            .putString("KEY_PAYOUT_CRYPTO_USDT_NET", cryptoUsdtNetwork)
+            .putString("KEY_PAYOUT_CRYPTO_BTC", cryptoBtcAddress)
+            .putString("KEY_PAYOUT_CRYPTO_ETH", cryptoEthAddress)
+            .putString("KEY_PAYOUT_CURRENCY", defaultCurrency)
+            .putString("KEY_PAYOUT_ORG_TYPE", organizationType)
+            .putBoolean("KEY_PAYOUT_QR_ENABLED", instantQrEnabled)
+            .putBoolean("KEY_PAYOUT_AUTO_RECEIPT", autoIssueReceipt)
+            .putBoolean("KEY_PAYOUT_IS_CONFIGURED", true)
+            .putLong("KEY_PAYOUT_UPDATED_AT", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getPayoutAccountHolder(): String = prefs.getString("KEY_PAYOUT_ACCOUNT_HOLDER", "") ?: ""
+    fun getPayoutIban(): String = prefs.getString("KEY_PAYOUT_IBAN", "") ?: ""
+    fun getPayoutBic(): String = prefs.getString("KEY_PAYOUT_BIC", "") ?: ""
+    fun getPayoutBankName(): String = prefs.getString("KEY_PAYOUT_BANK_NAME", "") ?: ""
+    fun getPayoutStripeAcct(): String = prefs.getString("KEY_PAYOUT_STRIPE_ACCT", "") ?: ""
+    fun getPayoutStripeLink(): String = prefs.getString("KEY_PAYOUT_STRIPE_LINK", "") ?: ""
+    fun getPayoutPaypalEmail(): String = prefs.getString("KEY_PAYOUT_PAYPAL_EMAIL", "") ?: ""
+    fun getPayoutPaypalMe(): String = prefs.getString("KEY_PAYOUT_PAYPAL_ME", "") ?: ""
+    fun getPayoutCryptoUsdt(): String = prefs.getString("KEY_PAYOUT_CRYPTO_USDT", "") ?: ""
+    fun getPayoutCryptoUsdtNet(): String = prefs.getString("KEY_PAYOUT_CRYPTO_USDT_NET", "TRC-20") ?: "TRC-20"
+    fun getPayoutCryptoBtc(): String = prefs.getString("KEY_PAYOUT_CRYPTO_BTC", "") ?: ""
+    fun getPayoutCryptoEth(): String = prefs.getString("KEY_PAYOUT_CRYPTO_ETH", "") ?: ""
+    fun getPayoutCurrency(): String = prefs.getString("KEY_PAYOUT_CURRENCY", "EUR") ?: "EUR"
+    fun getPayoutOrgType(): String = prefs.getString("KEY_PAYOUT_ORG_TYPE", "ASSOCIATION_MOSQUEE") ?: "ASSOCIATION_MOSQUEE"
+    fun isPayoutQrEnabled(): Boolean = prefs.getBoolean("KEY_PAYOUT_QR_ENABLED", true)
+    fun isPayoutAutoReceipt(): Boolean = prefs.getBoolean("KEY_PAYOUT_AUTO_RECEIPT", true)
+    fun isPayoutConfigured(): Boolean = prefs.getBoolean("KEY_PAYOUT_IS_CONFIGURED", false)
+    fun getPayoutUpdatedAt(): Long = prefs.getLong("KEY_PAYOUT_UPDATED_AT", 0L)
+
+    fun saveReceivedPaymentsJson(json: String) {
+        prefs.edit().putString("KEY_RECEIVED_PAYMENTS_JSON", json).apply()
+    }
+
+    fun getReceivedPaymentsJson(): String {
+        return prefs.getString("KEY_RECEIVED_PAYMENTS_JSON", "") ?: ""
+    }
+
+    // --- Stripe Gateway SDK Properties ---
+    fun saveStripePublishableKey(key: String) {
+        prefs.edit().putString("KEY_STRIPE_PUB_KEY", key).apply()
+    }
+
+    fun getStripePublishableKey(): String {
+        return prefs.getString("KEY_STRIPE_PUB_KEY", "") ?: ""
+    }
+
+    fun saveStripePaymentIntentId(intentId: String) {
+        prefs.edit().putString("KEY_STRIPE_PAYMENT_INTENT_ID", intentId).apply()
+    }
+
+    fun getStripePaymentIntentId(): String {
+        return prefs.getString("KEY_STRIPE_PAYMENT_INTENT_ID", "") ?: ""
+    }
+
+    fun saveStripeLast4(last4: String) {
+        prefs.edit().putString("KEY_STRIPE_LAST4", last4).apply()
+    }
+
+    fun getStripeLast4(): String {
+        return prefs.getString("KEY_STRIPE_LAST4", "") ?: ""
+    }
+
+    fun saveStripeCardBrand(brand: String) {
+        prefs.edit().putString("KEY_STRIPE_CARD_BRAND", brand).apply()
+    }
+
+    fun getStripeCardBrand(): String {
+        return prefs.getString("KEY_STRIPE_CARD_BRAND", "") ?: ""
+    }
 }
 
