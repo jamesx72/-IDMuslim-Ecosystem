@@ -5,11 +5,15 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.PersistableBundle
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -64,6 +68,8 @@ fun DigitalWalletScreen(
     val uiState by walletViewModel.uiState.collectAsStateWithLifecycle()
     val documents by walletViewModel.documents.collectAsStateWithLifecycle()
     val sensitiveItems by walletViewModel.sensitiveItems.collectAsStateWithLifecycle()
+    val encryptedFiles by walletViewModel.encryptedFiles.collectAsStateWithLifecycle()
+    val previewState by walletViewModel.previewState.collectAsStateWithLifecycle()
 
     val language by eventViewModel.language.collectAsStateWithLifecycle()
     val cachedProfile by eventViewModel.cachedUserProfile.collectAsStateWithLifecycle()
@@ -84,9 +90,31 @@ fun DigitalWalletScreen(
     var showSensitiveDialog by remember { mutableStateOf(false) }
     var editingSensitive by remember { mutableStateOf<SensitiveInfoEntity?>(null) }
 
+    var pendingUploadUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingUploadTitle by remember { mutableStateOf("") }
+
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showPinUnlockDialog by remember { mutableStateOf(false) }
     var showPurgeConfirmDialog by remember { mutableStateOf(false) }
+
+    // Play-Policy compliant document & photo pickers (no READ_EXTERNAL_STORAGE / READ_MEDIA_IMAGES needed)
+    val pdfAndDocPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            pendingUploadTitle = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.') ?: "Document Identité"
+            pendingUploadUri = uri
+        }
+    }
+
+    val photoIdPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            pendingUploadTitle = "Photo Pièce d'Identité"
+            pendingUploadUri = uri
+        }
+    }
 
     BackHandler {
         onNavigateBack()
@@ -222,26 +250,36 @@ fun DigitalWalletScreen(
                 ExtendedFloatingActionButton(
                     onClick = {
                         HapticHelper.performClick(context, haptic)
-                        if (uiState.selectedTabIndex == 0) {
-                            editingDocument = null
-                            showDocumentDialog = true
-                        } else {
-                            editingSensitive = null
-                            showSensitiveDialog = true
+                        when (uiState.selectedTabIndex) {
+                            0 -> {
+                                editingDocument = null
+                                showDocumentDialog = true
+                            }
+                            1 -> {
+                                editingSensitive = null
+                                showSensitiveDialog = true
+                            }
+                            3 -> {
+                                pdfAndDocPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                            }
                         }
                     },
                     icon = {
                         Icon(
-                            imageVector = if (uiState.selectedTabIndex == 0) Icons.Default.AddCard else Icons.Default.EnhancedEncryption,
+                            imageVector = when (uiState.selectedTabIndex) {
+                                0 -> Icons.Default.AddCard
+                                3 -> Icons.Default.UploadFile
+                                else -> Icons.Default.EnhancedEncryption
+                            },
                             contentDescription = null
                         )
                     },
                     text = {
                         Text(
-                            if (uiState.selectedTabIndex == 0) {
-                                stringResource(R.string.digital_wallet_add_document)
-                            } else {
-                                stringResource(R.string.digital_wallet_add_sensitive)
+                            when (uiState.selectedTabIndex) {
+                                0 -> stringResource(R.string.digital_wallet_add_document)
+                                3 -> "Déposer PDF / Image"
+                                else -> stringResource(R.string.digital_wallet_add_sensitive)
                             }
                         )
                     },
@@ -357,6 +395,7 @@ fun DigitalWalletScreen(
                         val tabs = listOf(
                             0 to Translations.get(language, "wallet_tab_docs"),
                             1 to Translations.get(language, "wallet_tab_secrets"),
+                            3 to Translations.get(language, "wallet_tab_files"),
                             2 to Translations.get(language, "wallet_tab_audit")
                         )
                         Surface(
@@ -382,16 +421,17 @@ fun DigitalWalletScreen(
                                                 HapticHelper.performClick(context, haptic)
                                                 walletViewModel.selectTab(idx)
                                             }
-                                            .padding(horizontal = 8.dp, vertical = 10.dp)
+                                            .padding(horizontal = 4.dp, vertical = 10.dp)
                                             .testTag("wallet_tab_$idx"),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = label,
-                                            style = MaterialTheme.typography.labelMedium,
+                                            style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 2
                                         )
                                     }
                                 }
@@ -557,6 +597,64 @@ fun DigitalWalletScreen(
                                 )
                             }
                         }
+
+                        3 -> {
+                            item {
+                                EncryptedDocumentUploadHeaderCard(
+                                    eccFingerprint = uiState.eccFingerprint,
+                                    fileCount = encryptedFiles.size,
+                                    isUploading = uiState.isUploadingEncryptedDoc,
+                                    onPickPdfOrFile = {
+                                        pdfAndDocPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                                    },
+                                    onPickImagePhoto = {
+                                        photoIdPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                )
+                            }
+
+                            val matchingFiles = encryptedFiles.filter { file ->
+                                val q = uiState.searchQuery.trim()
+                                q.isEmpty() ||
+                                    file.title.contains(q, ignoreCase = true) ||
+                                    file.fileName.contains(q, ignoreCase = true)
+                            }
+
+                            if (matchingFiles.isEmpty()) {
+                                item {
+                                    WalletEmptyStateCard(
+                                        icon = Icons.Default.UploadFile,
+                                        title = "Aucun fichier PDF ou image chiffré",
+                                        description = "Sélectionnez un justificatif PDF ou une photo d'identité. Il sera chiffré localement avec ECC P-256 + AES-256-GCM avant d'être enregistré dans SQLCipher et Firebase Storage.",
+                                        primaryCta = "Chiffrer un PDF / Image",
+                                        onPrimaryClick = {
+                                            pdfAndDocPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                                        }
+                                    )
+                                }
+                            } else {
+                                items(matchingFiles, key = { it.id }) { file ->
+                                    EncryptedVaultFileCard(
+                                        file = file,
+                                        language = language,
+                                        onDecryptAndOpen = {
+                                            requestBiometricThen {
+                                                walletViewModel.openEncryptedDocumentPreview(file)
+                                            }
+                                        },
+                                        onRetryCloudSync = {
+                                            walletViewModel.retryEncryptedFileCloudSync(file)
+                                        },
+                                        onDelete = {
+                                            walletViewModel.deleteEncryptedDocument(file)
+                                            eventViewModel.logActivity("ENCRYPTED_FILE_DELETED", "Suppression d'un document chiffré ECC (${file.title})")
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -687,6 +785,35 @@ fun DigitalWalletScreen(
             }
         )
     }
+
+    pendingUploadUri?.let { chosenUri ->
+        EncryptedUploadStagingDialog(
+            initialTitle = pendingUploadTitle,
+            language = language,
+            onDismiss = { pendingUploadUri = null },
+            onConfirmUpload = { finalTitle, catCode, syncToCloud ->
+                pendingUploadUri = null
+                walletViewModel.uploadEncryptedDocument(
+                    uri = chosenUri,
+                    title = finalTitle,
+                    docCategory = catCode,
+                    uploadToCloud = syncToCloud
+                ) { uploaded ->
+                    if (uploaded != null) {
+                        eventViewModel.logActivity(
+                            "ENCRYPTED_DOC_UPLOADED",
+                            "Document chiffré ECC P-256 : ${uploaded.title} (${uploaded.syncStatus})"
+                        )
+                    }
+                }
+            }
+        )
+    }
+
+    EncryptedDocumentPreviewDialog(
+        previewState = previewState,
+        onDismiss = { walletViewModel.dismissDocumentPreview() }
+    )
 }
 
 @Composable

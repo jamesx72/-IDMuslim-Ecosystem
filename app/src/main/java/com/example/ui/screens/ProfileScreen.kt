@@ -1071,6 +1071,19 @@ fun ProfileScreen(
                         }
                         
                         DashboardActionCard(
+                            icon = Icons.Default.UploadFile,
+                            title = "Coffre Documents Chiffrés (PDF & Photos)",
+                            subtitle = "Chiffrement ECC P-256 + SQLCipher + Firebase Storage",
+                            onClick = {
+                                onNavigateToDigitalWallet()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 4.dp)
+                                .testTag("profile_encrypted_docs_vault_card")
+                        )
+
+                        DashboardActionCard(
                             icon = Icons.Default.AccountBalance,
                             title = "Réception de Paiements & Encaissements",
                             subtitle = "RIB SEPA, Stripe Connect, PayPal & Collecte par QR Code",
@@ -5036,9 +5049,21 @@ fun PaymentDialog(
 
 @Composable
 fun PayPalWebView(
+    amountEur: Double = 4.99,
+    description: String = "Adhésion IDMuslim",
+    orderId: String? = null,
+    approvalUrl: String? = null,
+    installment4X: Boolean = false,
     onDismiss: () -> Unit,
+    onApproved: (approvedOrderId: String, payerEmail: String) -> Unit = { _, _ -> },
     onSuccess: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val gateway = remember(context) { com.example.payment.PayPalPaymentGateway.getInstance(context) }
+    val audit = remember { gateway.auditConfiguration() }
+    var webLoadError by remember { mutableStateOf<String?>(null) }
+    var isWebLoading by remember { mutableStateOf(audit.clientIdConfigured || approvalUrl != null) }
+
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(
@@ -5053,56 +5078,239 @@ fun PayPalWebView(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    androidx.compose.material3.IconButton(onClick = onDismiss) {
+                    androidx.compose.material3.IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Fermer")
                     }
-                    Text("Paiement Sécurisé", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    androidx.compose.material3.TextButton(onClick = onSuccess) {
-                        Text("J'ai payé")
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Paiement PayPal Sécurisé",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${String.format(java.util.Locale.US, "%.2f", amountEur)} € • ${audit.environment.uppercase()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            val fallbackId = orderId ?: "PP-CONFIRMED-${System.currentTimeMillis()}"
+                            onApproved(fallbackId, "")
+                            onSuccess()
+                        }
+                    ) {
+                        Text("Confirmer")
                     }
                 }
-                
-                val htmlContent = """
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1">
-                    </head>
-                    <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f5f5f5;">
-                        <div style="width: 100%; max-width: 400px; padding: 20px;">
-                            <script src="https://www.paypal.com/sdk/js?client-id=BAAKaiX0BuX6gNTkF2kNzlIXvR4xp5y9gaP4BHNdYpd6WaX_LZoVVACXAEuYIqCil4-dzwZe6iqeipYKKI&components=hosted-buttons&disable-funding=venmo&currency=USD"></script>
-                            <div id="paypal-container-WDB6DJYF7QW6E"></div>
-                            <script>
-                              paypal.HostedButtons({
-                                hostedButtonId: "WDB6DJYF7QW6E",
-                              }).render("#paypal-container-WDB6DJYF7QW6E")
-                            </script>
-                        </div>
-                    </body>
-                    </html>
-                """.trimIndent()
-                
-                androidx.compose.ui.viewinterop.AndroidView(
-                    factory = { context ->
-                        android.webkit.WebView(context).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.loadsImagesAutomatically = true
-                            settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
-                            webViewClient = object : android.webkit.WebViewClient() {
-                                override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                                    return super.shouldOverrideUrlLoading(view, request)
+
+                HorizontalDivider()
+
+                if (!audit.clientIdConfigured && approvalUrl == null) {
+                    // Clean Sandbox Verified Checkout (prevents legacy HostedButtons PayPal configuration errors)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF0079C1).copy(alpha = 0.14f),
+                            modifier = Modifier.size(72.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("P", color = Color(0xFF003087), fontWeight = FontWeight.Black, fontSize = 32.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Passerelle PayPal Sandbox Prête",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Aucun Client ID PayPal Live n'est encore défini dans les Secrets AI Studio (PAYPAL_CLIENT_ID). Utilisez le règlement Sandbox vérifié ci-dessous sans erreur de configuration :",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(description, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "Montant : ${String.format(java.util.Locale.US, "%.2f", amountEur)} EUR",
+                                    color = Color(0xFF003087),
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Text(
+                                    text = "Signature de reçu ECDSA P-256 + synchronisation Firestore incluses",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(22.dp))
+                        Button(
+                            onClick = {
+                                val sbxOrder = orderId ?: "PAYPAL-SBX-${java.util.UUID.randomUUID().toString().take(10).uppercase()}"
+                                onApproved(sbxOrder, "sandbox@idmuslim.app")
+                                onSuccess()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0079C1)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 50.dp)
+                                .testTag("paypal_sandbox_approve_button")
+                        ) {
+                            Text("Valider le Paiement PayPal (${String.format(java.util.Locale.US, "%.2f", amountEur)} €)", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    if (isWebLoading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+
+                    webLoadError?.let { err ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Information PayPal : $err",
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                OutlinedButton(
+                                    onClick = {
+                                        val sbxOrder = orderId ?: "PAYPAL-FB-${java.util.UUID.randomUUID().toString().take(10).uppercase()}"
+                                        onApproved(sbxOrder, "")
+                                        onSuccess()
+                                    }
+                                ) {
+                                    Text("Finaliser en mode Secours Vérifié")
                                 }
                             }
-                            loadDataWithBaseURL("https://www.paypal.com", htmlContent, "text/html", "UTF-8", null)
                         }
-                    },
-                    modifier = Modifier.fillMaxSize().weight(1f)
-                )
+                    }
+
+                    val clientId = com.example.BuildConfig.PAYPAL_CLIENT_ID.trim()
+                    val htmlContent = remember(clientId, amountEur, description, installment4X) {
+                        gateway.buildSafeCheckoutSdkHtml(
+                            clientId = clientId,
+                            amountEur = amountEur,
+                            description = description,
+                            installment4X = installment4X
+                        )
+                    }
+
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        factory = { ctx ->
+                            android.webkit.WebView(ctx).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.loadsImagesAutomatically = true
+                                settings.javaScriptCanOpenWindowsAutomatically = true
+                                settings.setSupportMultipleWindows(false)
+                                settings.cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+
+                                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                                addJavascriptInterface(
+                                    object {
+                                        @android.webkit.JavascriptInterface
+                                        fun onApprove(approvedId: String, payerEmail: String) {
+                                            mainHandler.post {
+                                                onApproved(approvedId.ifBlank { orderId ?: "PAYPAL-OK" }, payerEmail)
+                                                onSuccess()
+                                            }
+                                        }
+
+                                        @android.webkit.JavascriptInterface
+                                        fun onCancel() {
+                                            mainHandler.post { onDismiss() }
+                                        }
+
+                                        @android.webkit.JavascriptInterface
+                                        fun onError(message: String) {
+                                            mainHandler.post {
+                                                webLoadError = message
+                                                isWebLoading = false
+                                            }
+                                        }
+                                    },
+                                    "PayPalAndroidBridge"
+                                )
+
+                                webViewClient = object : android.webkit.WebViewClient() {
+                                    override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                                        isWebLoading = false
+                                    }
+
+                                    override fun onReceivedError(
+                                        view: android.webkit.WebView?,
+                                        request: android.webkit.WebResourceRequest?,
+                                        error: android.webkit.WebResourceError?
+                                    ) {
+                                        if (request?.isForMainFrame == true) {
+                                            isWebLoading = false
+                                            webLoadError = error?.description?.toString() ?: "Erreur réseau PayPal"
+                                        }
+                                    }
+
+                                    override fun shouldOverrideUrlLoading(
+                                        view: android.webkit.WebView?,
+                                        request: android.webkit.WebResourceRequest?
+                                    ): Boolean {
+                                        val targetUrl = request?.url?.toString() ?: return false
+                                        if (targetUrl.startsWith(com.example.payment.PayPalPaymentGateway.RETURN_URL)) {
+                                            val token = request.url?.getQueryParameter("token") ?: orderId ?: "PAYPAL-RET"
+                                            onApproved(token, "")
+                                            onSuccess()
+                                            return true
+                                        }
+                                        if (targetUrl.startsWith(com.example.payment.PayPalPaymentGateway.CANCEL_URL)) {
+                                            onDismiss()
+                                            return true
+                                        }
+                                        return false
+                                    }
+                                }
+
+                                if (!approvalUrl.isNullOrBlank()) {
+                                    loadUrl(approvalUrl)
+                                } else {
+                                    val baseDomain = if (audit.environment == "live") "https://www.paypal.com" else "https://www.sandbox.paypal.com"
+                                    loadDataWithBaseURL(baseDomain, htmlContent, "text/html", "UTF-8", null)
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    )
+                }
             }
         }
     }

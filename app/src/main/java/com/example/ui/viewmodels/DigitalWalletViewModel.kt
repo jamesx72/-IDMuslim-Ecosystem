@@ -1,17 +1,25 @@
 package com.example.ui.viewmodels
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.DocumentEntity
 import com.example.data.UserProfileEntity
+import com.example.data.wallet.EncryptedVaultFileEntity
 import com.example.data.wallet.SecureWalletDatabase
 import com.example.data.wallet.SensitiveInfoEntity
 import com.example.data.wallet.SqlCipherVaultTelemetry
 import com.example.data.wallet.WalletDocumentEntity
 import com.example.data.wallet.WalletRepository
+import com.example.security.KeystoreManager
 import com.example.security.WalletVaultKeyManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +29,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
+
+sealed class VaultFilePreviewState {
+    object Hidden : VaultFilePreviewState()
+    data class Loading(val file: EncryptedVaultFileEntity) : VaultFilePreviewState()
+    data class ImageReady(val file: EncryptedVaultFileEntity, val bitmap: Bitmap) : VaultFilePreviewState()
+    data class PdfReady(val file: EncryptedVaultFileEntity, val pages: List<Bitmap>) : VaultFilePreviewState()
+    data class Error(val file: EncryptedVaultFileEntity, val message: String) : VaultFilePreviewState()
+}
 
 data class DigitalWalletUiState(
     val isVaultLocked: Boolean = false,
@@ -34,7 +52,9 @@ data class DigitalWalletUiState(
     val revealedItemIds: Set<String> = emptySet(),
     val telemetry: SqlCipherVaultTelemetry? = null,
     val isProcessingKeyRotation: Boolean = false,
+    val isUploadingEncryptedDoc: Boolean = false,
     val hasCustomPin: Boolean = false,
+    val eccFingerprint: String = "",
     val statusMessage: String? = null
 )
 
@@ -45,7 +65,8 @@ class DigitalWalletViewModel(
 
     private val _uiState = MutableStateFlow(
         DigitalWalletUiState(
-            hasCustomPin = WalletVaultKeyManager.hasCustomVaultPin(appContext)
+            hasCustomPin = WalletVaultKeyManager.hasCustomVaultPin(appContext),
+            eccFingerprint = KeystoreManager.getVaultEciesFingerprintSha256(appContext)
         )
     )
     val uiState: StateFlow<DigitalWalletUiState> = _uiState.asStateFlow()
@@ -61,6 +82,15 @@ class DigitalWalletViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    val encryptedFiles: StateFlow<List<EncryptedVaultFileEntity>> = repository.allEncryptedFiles.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    private val _previewState = MutableStateFlow<VaultFilePreviewState>(VaultFilePreviewState.Hidden)
+    val previewState: StateFlow<VaultFilePreviewState> = _previewState.asStateFlow()
 
     private val autoHideJobs = mutableMapOf<String, Job>()
 
@@ -318,6 +348,164 @@ class DigitalWalletViewModel(
                 )
             }
         }
+    }
+
+    fun uploadEncryptedDocument(
+        uri: Uri,
+        title: String,
+        docCategory: String,
+        uploadToCloud: Boolean = true,
+        onComplete: (EncryptedVaultFileEntity?) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUploadingEncryptedDoc = true) }
+            val result = repository.uploadEncryptedUri(
+                context = appContext,
+                uri = uri,
+                title = title,
+                docCategory = docCategory,
+                uploadToCloud = uploadToCloud
+            )
+            refreshTelemetry()
+            result.fold(
+                onSuccess = { entity ->
+                    val statusMsg = if (entity.syncStatus == "SYNCED_CLOUD") {
+                        "Document chiffré (ECC P-256) stocké dans SQLCipher & Firebase Storage."
+                    } else {
+                        "Document chiffré (ECC P-256) enregistré localement dans SQLCipher."
+                    }
+                    _uiState.update {
+                        it.copy(
+                            isUploadingEncryptedDoc = false,
+                            statusMessage = statusMsg
+                        )
+                    }
+                    onComplete(entity)
+                },
+                onFailure = { err ->
+                    _uiState.update {
+                        it.copy(
+                            isUploadingEncryptedDoc = false,
+                            statusMessage = err.localizedMessage ?: "Échec du chiffrement du document."
+                        )
+                    }
+                    onComplete(null)
+                }
+            )
+        }
+    }
+
+    fun openEncryptedDocumentPreview(file: EncryptedVaultFileEntity) {
+        viewModelScope.launch {
+            _previewState.value = VaultFilePreviewState.Loading(file)
+            val decryptResult = repository.decryptVaultFileBytes(appContext, file)
+            decryptResult.fold(
+                onSuccess = { plainBytes ->
+                    if (file.isPdf) {
+                        val pages = renderPdfPagesInMemory(plainBytes)
+                        java.util.Arrays.fill(plainBytes, 0.toByte())
+                        if (pages.isNotEmpty()) {
+                            _previewState.value = VaultFilePreviewState.PdfReady(file, pages)
+                        } else {
+                            _previewState.value = VaultFilePreviewState.Error(file, "Impossible de décoder les pages du PDF.")
+                        }
+                    } else {
+                        val bitmap = BitmapFactory.decodeByteArray(plainBytes, 0, plainBytes.size)
+                        java.util.Arrays.fill(plainBytes, 0.toByte())
+                        if (bitmap != null) {
+                            _previewState.value = VaultFilePreviewState.ImageReady(file, bitmap)
+                        } else {
+                            _previewState.value = VaultFilePreviewState.Error(file, "Image déchiffrée illisible.")
+                        }
+                    }
+                },
+                onFailure = { err ->
+                    _previewState.value = VaultFilePreviewState.Error(
+                        file,
+                        err.localizedMessage ?: "Erreur lors du déchiffrement ECC."
+                    )
+                }
+            )
+        }
+    }
+
+    fun dismissDocumentPreview() {
+        val current = _previewState.value
+        if (current is VaultFilePreviewState.ImageReady) {
+            current.bitmap.recycle()
+        } else if (current is VaultFilePreviewState.PdfReady) {
+            current.pages.forEach { it.recycle() }
+        }
+        _previewState.value = VaultFilePreviewState.Hidden
+    }
+
+    fun retryEncryptedFileCloudSync(file: EncryptedVaultFileEntity) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUploadingEncryptedDoc = true) }
+            val result = repository.retryEncryptedFileCloudSync(file)
+            _uiState.update {
+                it.copy(
+                    isUploadingEncryptedDoc = false,
+                    statusMessage = result.fold(
+                        onSuccess = { updated ->
+                            if (updated.syncStatus == "SYNCED_CLOUD") {
+                                "Fichier chiffré synchronisé avec Firebase Storage."
+                            } else {
+                                "Synchronisation Firebase Storage en attente (connectez-vous ou vérifiez le réseau)."
+                            }
+                        },
+                        onFailure = { err -> err.localizedMessage ?: "Synchronisation impossible." }
+                    )
+                )
+            }
+        }
+    }
+
+    fun deleteEncryptedDocument(file: EncryptedVaultFileEntity) {
+        viewModelScope.launch {
+            repository.deleteEncryptedFile(file)
+            refreshTelemetry()
+            _uiState.update {
+                it.copy(statusMessage = "Document chiffré supprimé localement et sur Firebase Storage.")
+            }
+        }
+    }
+
+    private suspend fun renderPdfPagesInMemory(pdfBytes: ByteArray): List<Bitmap> = withContext(Dispatchers.IO) {
+        val bitmaps = mutableListOf<Bitmap>()
+        var tempPdf: File? = null
+        var pfd: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
+        try {
+            tempPdf = File.createTempFile("idm_dec_", ".pdf", appContext.cacheDir)
+            tempPdf.writeBytes(pdfBytes)
+            pfd = ParcelFileDescriptor.open(tempPdf, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(pfd)
+            val pageCount = renderer.pageCount.coerceAtMost(12)
+            for (i in 0 until pageCount) {
+                val page = renderer.openPage(i)
+                val targetWidth = 1080
+                val ratio = page.height.toFloat() / page.width.coerceAtLeast(1).toFloat()
+                val targetHeight = (targetWidth * ratio).toInt().coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.WHITE)
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+                bitmaps.add(bitmap)
+            }
+        } catch (_: Throwable) {
+            // Return whatever pages rendered cleanly
+        } finally {
+            try { renderer?.close() } catch (_: Throwable) {}
+            try { pfd?.close() } catch (_: Throwable) {}
+            try {
+                if (tempPdf != null && tempPdf.exists()) {
+                    tempPdf.writeBytes(ByteArray(0))
+                    tempPdf.delete()
+                }
+            } catch (_: Throwable) {}
+        }
+        bitmaps
     }
 
     fun purgeEntireVault() {

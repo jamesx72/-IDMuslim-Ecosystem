@@ -225,3 +225,49 @@ fun SensitiveInfoEntity.decryptedFields(crypto: CryptoManager = CryptoManager.ge
         confidentialNotes = crypto.decrypt(confidentialNotes) ?: confidentialNotes
     )
 }
+
+@Entity(tableName = "wallet_encrypted_files")
+data class EncryptedVaultFileEntity(
+    @PrimaryKey val id: String,
+    val userId: String,
+    val title: String,
+    val docCategory: String,
+    val fileName: String,
+    val mimeType: String,
+    val originalSizeBytes: Long,
+    val encryptedSizeBytes: Long,
+    val sha256PlaintextHex: String,
+    val sha256CiphertextHex: String,
+    val eccAlgorithm: String = "ECDH-P256+HKDF-SHA256+AES-256-GCM",
+    val eccPublicKeyFingerprint: String,
+    val ecdsaSignatureBase64: String,
+    val localEncryptedPath: String,
+    val firebaseStoragePath: String,
+    val firebaseDownloadUrl: String = "",
+    val syncStatus: String = "ENCRYPTED_LOCAL",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    val isPdf: Boolean
+        get() = mimeType.contains("pdf", ignoreCase = true) ||
+            fileName.endsWith(".pdf", ignoreCase = true)
+
+    fun shortDigestPreview(): String = sha256PlaintextHex.take(16).uppercase(Locale.ROOT)
+}
+
+fun EncryptedVaultFileEntity.encryptedFields(crypto: CryptoManager = CryptoManager.getInstance()): EncryptedVaultFileEntity {
+    return copy(
+        title = crypto.encrypt(title) ?: title,
+        fileName = crypto.encrypt(fileName) ?: fileName,
+        firebaseDownloadUrl = crypto.encrypt(firebaseDownloadUrl) ?: firebaseDownloadUrl
+    )
+}
+
+fun EncryptedVaultFileEntity.decryptedFields(crypto: CryptoManager = CryptoManager.getInstance()): EncryptedVaultFileEntity {
+    return copy(
+        title = crypto.decrypt(title) ?: title,
+        fileName = crypto.decrypt(fileName) ?: fileName,
+        firebaseDownloadUrl = crypto.decrypt(firebaseDownloadUrl) ?: firebaseDownloadUrl
+    )
+}
+

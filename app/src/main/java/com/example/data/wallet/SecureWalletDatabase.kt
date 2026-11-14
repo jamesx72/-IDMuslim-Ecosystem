@@ -13,8 +13,8 @@ import java.io.File
 import java.io.FileInputStream
 
 @Database(
-    entities = [WalletDocumentEntity::class, SensitiveInfoEntity::class],
-    version = 1,
+    entities = [WalletDocumentEntity::class, SensitiveInfoEntity::class, EncryptedVaultFileEntity::class],
+    version = 2,
     exportSchema = false
 )
 abstract class SecureWalletDatabase : RoomDatabase() {
@@ -24,6 +24,37 @@ abstract class SecureWalletDatabase : RoomDatabase() {
         private const val TAG = "SecureWalletDatabase"
         const val DB_FILE_NAME = "idmuslim_wallet_vault.db"
         private const val SQLITE_PLAINTEXT_MAGIC = "SQLite format 3"
+
+        val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `wallet_encrypted_files` (
+                        `id` TEXT NOT NULL,
+                        `userId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `docCategory` TEXT NOT NULL,
+                        `fileName` TEXT NOT NULL,
+                        `mimeType` TEXT NOT NULL,
+                        `originalSizeBytes` INTEGER NOT NULL,
+                        `encryptedSizeBytes` INTEGER NOT NULL,
+                        `sha256PlaintextHex` TEXT NOT NULL,
+                        `sha256CiphertextHex` TEXT NOT NULL,
+                        `eccAlgorithm` TEXT NOT NULL,
+                        `eccPublicKeyFingerprint` TEXT NOT NULL,
+                        `ecdsaSignatureBase64` TEXT NOT NULL,
+                        `localEncryptedPath` TEXT NOT NULL,
+                        `firebaseStoragePath` TEXT NOT NULL,
+                        `firebaseDownloadUrl` TEXT NOT NULL,
+                        `syncStatus` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
 
         @Volatile
         private var INSTANCE: SecureWalletDatabase? = null
@@ -42,7 +73,9 @@ abstract class SecureWalletDatabase : RoomDatabase() {
                 appContext,
                 SecureWalletDatabase::class.java,
                 DB_FILE_NAME
-            ).fallbackToDestructiveMigration()
+            )
+                .addMigrations(MIGRATION_1_2)
+                .fallbackToDestructiveMigration()
 
             try {
                 SQLiteDatabase.loadLibs(appContext)

@@ -43,4 +43,27 @@ interface WalletDao {
 
     @Query("DELETE FROM wallet_sensitive_info")
     suspend fun clearAllSensitiveInfo()
+
+    @Query("SELECT * FROM wallet_encrypted_files ORDER BY updatedAt DESC")
+    fun observeAllEncryptedFiles(): Flow<List<EncryptedVaultFileEntity>>
+
+    @Query("SELECT * FROM wallet_encrypted_files WHERE id = :id LIMIT 1")
+    suspend fun getEncryptedFileById(id: String): EncryptedVaultFileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEncryptedFile(file: EncryptedVaultFileEntity)
+
+    @Query("UPDATE wallet_encrypted_files SET syncStatus = :status, firebaseDownloadUrl = :downloadUrl, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateEncryptedFileSyncStatus(
+        id: String,
+        status: String,
+        downloadUrl: String,
+        updatedAt: Long = System.currentTimeMillis()
+    )
+
+    @Query("DELETE FROM wallet_encrypted_files WHERE id = :id")
+    suspend fun deleteEncryptedFileById(id: String)
+
+    @Query("DELETE FROM wallet_encrypted_files")
+    suspend fun clearAllEncryptedFiles()
 }

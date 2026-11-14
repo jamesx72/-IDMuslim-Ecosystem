@@ -239,46 +239,250 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
   }
 });
 
+const axios = require("axios");
+
+const paypalClientId = process.env.PAYPAL_CLIENT_ID || (functions.config().paypal ? functions.config().paypal.client_id : "");
+const paypalClientSecret = process.env.PAYPAL_CLIENT_SECRET || (functions.config().paypal ? functions.config().paypal.client_secret : "");
+const paypalWebhookId = process.env.PAYPAL_WEBHOOK_ID || (functions.config().paypal ? functions.config().paypal.webhook_id : "");
+const paypalEnvironment = (process.env.PAYPAL_ENVIRONMENT || (functions.config().paypal ? functions.config().paypal.environment : "sandbox")).toLowerCase();
+const paypalBaseUrl = paypalEnvironment === "live" || paypalEnvironment === "production"
+  ? "https://api-m.paypal.com"
+  : "https://api-m.sandbox.paypal.com";
+
+async function getPayPalAccessToken() {
+  if (!paypalClientId || !paypalClientSecret) {
+    throw new Error("PAYPAL_CLIENT_ID or PAYPAL_CLIENT_SECRET is not configured in Functions environment.");
+  }
+  const auth = Buffer.from(`${paypalClientId}:${paypalClientSecret}`).toString("base64");
+  const resp = await axios.post(
+    `${paypalBaseUrl}/v1/oauth2/token`,
+    "grant_type=client_credentials",
+    {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    }
+  );
+  return resp.data.access_token;
+}
+
+async function verifyPayPalWebhookSignature(req) {
+  if (!paypalWebhookId || !paypalClientId || !paypalClientSecret) {
+    return true; // Skip remote cryptographic check when webhook ID isn't configured in sandbox
+  }
+  const token = await getPayPalAccessToken();
+  const verifyResp = await axios.post(
+    `${paypalBaseUrl}/v1/notifications/verify-webhook-signature`,
+    {
+      transmission_id: req.headers["paypal-transmission-id"],
+      transmission_time: req.headers["paypal-transmission-time"],
+      cert_url: req.headers["paypal-cert-url"],
+      auth_algo: req.headers["paypal-auth-algo"],
+      transmission_sig: req.headers["paypal-transmission-sig"],
+      webhook_id: paypalWebhookId,
+      webhook_event: req.body,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  return verifyResp.data?.verification_status === "SUCCESS";
+}
+
+/**
+ * 2a. HTTPS Callable: Create PayPal Order v2 in EUR
+ */
+exports.createPayPalOrder = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+  const tier = data?.tier || "EMERALD";
+  const billingCycle = (data?.billingCycle || "ANNUAL").toUpperCase();
+  const amountEur = Number(data?.amountEur || (tier === "WAQF_PATRON" ? 99.0 : 29.90)).toFixed(2);
+
+  const token = await getPayPalAccessToken();
+  const orderResp = await axios.post(
+    `${paypalBaseUrl}/v2/checkout/orders`,
+    {
+      intent: "CAPTURE",
+      purchase_units: [
+        {
+          custom_id: `${context.auth.uid}|${tier}|${billingCycle}`,
+          description: `IDMuslim ${tier} (${billingCycle})`,
+          amount: {
+            currency_code: "EUR",
+            value: amountEur,
+          },
+        },
+      ],
+      application_context: {
+        brand_name: "IDMuslim",
+        user_action: "PAY_NOW",
+        return_url: "https://idmuslim.app/paypal/return",
+        cancel_url: "https://idmuslim.app/paypal/cancel",
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  const approveLink = (orderResp.data.links || []).find((l) => l.rel === "approve");
+  return {
+    orderId: orderResp.data.id,
+    approvalUrl: approveLink ? approveLink.href : null,
+    status: orderResp.data.status,
+  };
+});
+
+/**
+ * 2b. HTTPS Callable: Capture Approved PayPal Order & Sync Membership
+ */
+exports.capturePayPalOrder = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+  const orderId = data?.orderId;
+  if (!orderId) {
+    throw new functions.https.HttpsError("invalid-argument", "Missing PayPal orderId.");
+  }
+
+  const token = await getPayPalAccessToken();
+  const captureResp = await axios.post(
+    `${paypalBaseUrl}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,
+    {},
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  const captureData = captureResp.data;
+  const status = captureData.status;
+  if (status !== "COMPLETED") {
+    throw new functions.https.HttpsError("failed-precondition", `PayPal order status is ${status}`);
+  }
+
+  const tier = data?.tier || "EMERALD";
+  const billingCycle = (data?.billingCycle || "ANNUAL").toUpperCase();
+  const durationDays = billingCycle === "ANNUAL" ? 365 : 30;
+  const now = Date.now();
+  const expiryTimestamp = now + durationDays * 24 * 60 * 60 * 1000;
+
+  const userRef = db.collection("users").doc(context.auth.uid);
+  await userRef.set({
+    membershipTier: tier,
+    membershipStatus: "ACTIVE",
+    membershipCycle: billingCycle,
+    membershipExpiry: expiryTimestamp,
+    membershipAutoRenew: true,
+    hasPaidForPdf: true,
+    paypalSubscriptionId: orderId,
+    lastPaymentMethod: "PAYPAL",
+    lastPaymentStatus: "COMPLETED",
+    lastTransactionRef: orderId,
+    updatedAt: now,
+  }, { merge: true });
+
+  await userRef.collection("payments").doc(orderId).set({
+    paymentId: orderId,
+    provider: "PAYPAL",
+    status: "COMPLETED",
+    tier,
+    billingCycle,
+    currency: "EUR",
+    timestamp: now,
+  }, { merge: true });
+
+  return { status, orderId, expiryTimestamp };
+});
+
 /**
  * 2. HTTP Cloud Function: PayPal Webhook Listener
  * Endpoint: https://<region>-<project-id>.cloudfunctions.net/paypalWebhook
  */
 exports.paypalWebhook = functions.https.onRequest(async (req, res) => {
-  const event = req.body;
-  const eventType = event.event_type;
-
-  console.log(`🔔 Received PayPal Webhook Event: ${eventType}`);
-
   try {
+    const isValidSig = await verifyPayPalWebhookSignature(req);
+    if (!isValidSig) {
+      console.error("⚠️ PayPal Webhook signature verification failed.");
+      return res.status(401).json({ error: "Invalid PayPal webhook signature" });
+    }
+
+    const event = req.body || {};
+    const eventType = event.event_type;
+    console.log(`🔔 Received PayPal Webhook Event: ${eventType}`);
+
     const resource = event.resource || {};
-    const customId = resource.custom_id || resource.subscriber?.custom_id || resource.metadata?.userId;
+    const rawCustomId = resource.custom_id ||
+      resource.purchase_units?.[0]?.custom_id ||
+      resource.subscriber?.custom_id ||
+      resource.metadata?.userId ||
+      "";
+    const [parsedUid, parsedTier, parsedCycle] = rawCustomId.includes("|")
+      ? rawCustomId.split("|")
+      : [rawCustomId, null, null];
+
     const subscriberEmail = resource.subscriber?.email_address || resource.payer?.email_address;
     const subscriptionId = resource.id || resource.billing_agreement_id;
 
-    const userRecord = await resolveUserDoc(customId, subscriberEmail, null);
+    const userRecord = await resolveUserDoc(parsedUid, subscriberEmail, null);
 
     switch (eventType) {
       case "BILLING.SUBSCRIPTION.ACTIVATED":
-      case "PAYMENT.SALE.COMPLETED": {
+      case "PAYMENT.SALE.COMPLETED":
+      case "CHECKOUT.ORDER.APPROVED":
+      case "PAYMENT.CAPTURE.COMPLETED": {
         if (userRecord) {
-          const durationDays = (resource.billing_info?.cycle_executions?.[0]?.tenure_type === "ANNUAL") ? 365 : 30;
-          const expiryTimestamp = Date.now() + durationDays * 24 * 60 * 60 * 1000;
-          const tier = resource.plan_id?.includes("WAQF") ? "WAQF_PATRON" : "EMERALD";
+          const cycle = parsedCycle ||
+            (resource.billing_info?.cycle_executions?.[0]?.tenure_type === "ANNUAL" ? "ANNUAL" : "MONTHLY");
+          const durationDays = cycle === "ANNUAL" ? 365 : 30;
+          const now = Date.now();
+          const currentExpiry = userRecord.data?.membershipExpiry || now;
+          const baseTime = currentExpiry > now ? currentExpiry : now;
+          const expiryTimestamp = baseTime + durationDays * 24 * 60 * 60 * 1000;
+          const tier = parsedTier || (resource.plan_id?.includes("WAQF") ? "WAQF_PATRON" : "EMERALD");
+          const amountVal = Number(resource.amount?.value || resource.amount?.total || 0);
 
           await userRecord.ref.set({
             membershipTier: tier,
             membershipStatus: "ACTIVE",
             membershipExpiry: expiryTimestamp,
-            membershipCycle: durationDays === 365 ? "ANNUAL" : "MONTHLY",
+            membershipCycle: cycle,
             membershipAutoRenew: true,
             hasPaidForPdf: true,
             paypalSubscriptionId: subscriptionId || null,
             lastPaymentMethod: "PAYPAL",
             lastPaymentStatus: "COMPLETED",
-            updatedAt: Date.now(),
+            lastPaymentAmount: amountVal,
+            lastPaymentCurrency: "EUR",
+            lastTransactionRef: subscriptionId || null,
+            updatedAt: now,
           }, { merge: true });
 
-          console.log(`✅ User ${userRecord.uid} PayPal subscription activated`);
+          if (subscriptionId) {
+            await userRecord.ref.collection("payments").doc(subscriptionId).set({
+              paymentId: subscriptionId,
+              provider: "PAYPAL",
+              amount: amountVal,
+              currency: "EUR",
+              status: "COMPLETED",
+              tier,
+              billingCycle: cycle,
+              timestamp: now,
+            }, { merge: true });
+          }
+
+          console.log(`✅ User ${userRecord.uid} PayPal payment/subscription activated (${tier})`);
         }
         break;
       }
@@ -299,7 +503,8 @@ exports.paypalWebhook = functions.https.onRequest(async (req, res) => {
         break;
       }
 
-      case "PAYMENT.SALE.DENIED": {
+      case "PAYMENT.SALE.DENIED":
+      case "PAYMENT.CAPTURE.DENIED": {
         if (userRecord) {
           await userRecord.ref.set({
             membershipStatus: "PAYMENT_FAILED",

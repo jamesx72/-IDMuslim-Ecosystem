@@ -178,6 +178,7 @@ fun MembershipSubscriptionDialog(
     var payPalEmail by remember { mutableStateOf("") }
     var payPalEmailError by remember { mutableStateOf<String?>(null) }
     var payPalInstallment4X by remember { mutableStateOf(false) }
+    var pendingPayPalCheckout by remember { mutableStateOf<com.example.payment.PayPalOrderPreparationResult.ReadyForWebCheckout?>(null) }
 
     // Crypto Input States
     var selectedCryptoNetwork by remember { mutableStateOf("USDT_TRC20") } // USDT_TRC20, USDT_ERC20, BTC, ETH
@@ -720,6 +721,30 @@ fun MembershipSubscriptionDialog(
                                                     }
                                                 }
                                             }
+                                        } else if (selectedPaymentMethod == PaymentMethod.PAYPAL) {
+                                            processingPhase = "Initialisation sécurisée PayPal Checkout (EUR)..."
+                                            viewModel.preparePayPalSubscriptionRenewal(
+                                                context = context,
+                                                payerEmail = payPalEmail,
+                                                tier = selectedPlan.id,
+                                                billingCycle = cycleStr,
+                                                amountEur = activePrice,
+                                                isRenewal = isRenewal,
+                                                installment4X = payPalInstallment4X
+                                            ) { prepResult ->
+                                                isProcessingPayment = false
+                                                when (prepResult) {
+                                                    is com.example.payment.PayPalOrderPreparationResult.DirectSandboxApproved -> {
+                                                        showPaymentSuccess = true
+                                                    }
+                                                    is com.example.payment.PayPalOrderPreparationResult.ReadyForWebCheckout -> {
+                                                        pendingPayPalCheckout = prepResult
+                                                    }
+                                                    is com.example.payment.PayPalOrderPreparationResult.Failed -> {
+                                                        Toast.makeText(context, prepResult.errorMessage, Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                            }
                                         } else {
                                             processingPhase = "Chiffrement SSL 256-bit de la transaction..."
                                             val generatedTxRef = "IDM-" + UUID.randomUUID().toString().take(8).uppercase()
@@ -798,6 +823,43 @@ fun MembershipSubscriptionDialog(
                 }
             }
         }
+    }
+
+    pendingPayPalCheckout?.let { ppCheckout ->
+        com.example.ui.screens.PayPalWebView(
+            amountEur = ppCheckout.amountEur,
+            description = "IDMuslim ${ppCheckout.tier} (${ppCheckout.billingCycle})",
+            orderId = ppCheckout.orderId,
+            approvalUrl = ppCheckout.approvalUrl,
+            installment4X = ppCheckout.installment4X,
+            onDismiss = { pendingPayPalCheckout = null },
+            onApproved = { approvedOrderId, returnedEmail ->
+                pendingPayPalCheckout = null
+                isProcessingPayment = true
+                processingPhase = "Capture PayPal & signature ECC du reçu..."
+                val isRenewal = !currentTier.equals("STANDARD", ignoreCase = true)
+                viewModel.finalizePayPalWebCheckout(
+                    context = context,
+                    orderOrSubId = approvedOrderId,
+                    payerEmail = returnedEmail.ifBlank { payPalEmail },
+                    tier = ppCheckout.tier,
+                    billingCycle = ppCheckout.billingCycle,
+                    amountEur = ppCheckout.amountEur,
+                    isRenewal = isRenewal,
+                    installment4X = ppCheckout.installment4X
+                ) { res ->
+                    isProcessingPayment = false
+                    when (res) {
+                        is com.example.payment.PayPalPaymentResult.Success -> showPaymentSuccess = true
+                        is com.example.payment.PayPalPaymentResult.Failed ->
+                            Toast.makeText(context, res.errorMessage, Toast.LENGTH_LONG).show()
+                        is com.example.payment.PayPalPaymentResult.Canceled ->
+                            Toast.makeText(context, "Paiement PayPal annulé.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onSuccess = {}
+        )
     }
 
     // Success Dialog
@@ -1113,6 +1175,9 @@ fun PayPalPaymentConfigForm(
     onEmailChange: (String) -> Unit,
     onToggleInstallment: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
+    val audit = remember(context) { com.example.payment.PayPalPaymentGateway.getInstance(context).auditConfiguration() }
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Surface(
             shape = RoundedCornerShape(14.dp),
@@ -1120,34 +1185,41 @@ fun PayPalPaymentConfigForm(
             border = BorderStroke(1.dp, Color(0xFF0079C1).copy(alpha = 0.3f)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0xFF0079C1),
-                    modifier = Modifier.size(32.dp)
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("P", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF0079C1),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("P", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = "Paiement Rapide et Sécurisé PayPal",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF003087)
+                        )
+                        Text(
+                            text = "Protection des Achats PayPal pendant 180 jours.",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            color = Color(0xFF0079C1)
+                        )
                     }
                 }
-                Column {
-                    Text(
-                        text = "Paiement Rapide et Sécurisé PayPal",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF003087)
-                    )
-                    Text(
-                        text = "Protection des Achats PayPal pendant 180 jours.",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.sp,
-                        color = Color(0xFF0079C1)
-                    )
-                }
+                Text(
+                    text = audit.statusBannerFr,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (audit.clientIdConfigured) Color(0xFF047857) else Color(0xFF0369A1)
+                )
             }
         }
 

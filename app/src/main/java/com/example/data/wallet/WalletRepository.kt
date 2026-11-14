@@ -25,6 +25,11 @@ class WalletRepository(
             list.map { it.decryptedFields(cryptoManager) }
         }
 
+    val allEncryptedFiles: Flow<List<EncryptedVaultFileEntity>> =
+        walletDao.observeAllEncryptedFiles().map { list ->
+            list.map { it.decryptedFields(cryptoManager) }
+        }
+
     suspend fun saveDocument(document: WalletDocumentEntity) = withContext(Dispatchers.IO) {
         val normalized = document.copy(updatedAt = System.currentTimeMillis())
         walletDao.upsertDocument(normalized.encryptedFields(cryptoManager))
@@ -51,9 +56,63 @@ class WalletRepository(
         walletDao.deleteSensitiveInfoById(id)
     }
 
+    suspend fun uploadEncryptedUri(
+        context: Context,
+        uri: android.net.Uri,
+        title: String,
+        docCategory: String,
+        uploadToCloud: Boolean = true
+    ): Result<EncryptedVaultFileEntity> = com.example.security.EncryptedDocumentVaultManager.encryptAndStoreUri(
+        context = context,
+        uri = uri,
+        customTitle = title,
+        docCategory = docCategory,
+        walletDao = walletDao,
+        cryptoManager = cryptoManager,
+        uploadToCloud = uploadToCloud
+    )
+
+    suspend fun uploadEncryptedBytes(
+        context: Context,
+        plainBytes: ByteArray,
+        fileName: String,
+        mimeType: String,
+        title: String,
+        docCategory: String,
+        uploadToCloud: Boolean = true
+    ): Result<EncryptedVaultFileEntity> = com.example.security.EncryptedDocumentVaultManager.encryptAndStoreBytes(
+        context = context,
+        plainBytes = plainBytes,
+        fileName = fileName,
+        mimeType = mimeType,
+        customTitle = title,
+        docCategory = docCategory,
+        walletDao = walletDao,
+        cryptoManager = cryptoManager,
+        uploadToCloud = uploadToCloud
+    )
+
+    suspend fun decryptVaultFileBytes(
+        context: Context,
+        entity: EncryptedVaultFileEntity
+    ): Result<ByteArray> = com.example.security.EncryptedDocumentVaultManager.decryptDocumentBytes(context, entity)
+
+    suspend fun retryEncryptedFileCloudSync(
+        entity: EncryptedVaultFileEntity
+    ): Result<EncryptedVaultFileEntity> = com.example.security.EncryptedDocumentVaultManager.syncLocalEncryptedFileToCloud(
+        entity = entity,
+        walletDao = walletDao,
+        cryptoManager = cryptoManager
+    )
+
+    suspend fun deleteEncryptedFile(entity: EncryptedVaultFileEntity) {
+        com.example.security.EncryptedDocumentVaultManager.deleteEncryptedDocument(entity, walletDao)
+    }
+
     suspend fun purgeEntireVault() = withContext(Dispatchers.IO) {
         walletDao.clearAllDocuments()
         walletDao.clearAllSensitiveInfo()
+        walletDao.clearAllEncryptedFiles()
     }
 
     suspend fun loadTelemetry(context: Context): SqlCipherVaultTelemetry = withContext(Dispatchers.IO) {

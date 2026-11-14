@@ -1,50 +1,29 @@
 package com.example.utils
 
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
-import java.security.KeyPairGenerator
-import java.security.KeyStore
-import java.security.PrivateKey
-import java.security.Signature
+import com.example.security.EccCryptoEngine
+import com.example.security.KeystoreManager
 
 /**
- * Handles generating ECDSA cryptographic signatures using the hardware-backed Android KeyStore.
+ * High-level ECDSA P-256 (SHA256withECDSA) cryptographic signer delegating to [KeystoreManager]
+ * and [EccCryptoEngine] for hardware-backed identity & document signatures.
  */
 object CryptoSigner {
-    private const val KEY_ALIAS = "IDMuslimDocumentSigner"
 
-    /**
-     * Signs a given string payload using a locally generated ECDSA private key.
-     * Generates the key pair if it does not already exist in the KeyStore.
-     */
     fun signPayload(payload: String): String? {
-        try {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore")
-            keyStore.load(null)
+        return KeystoreManager.signData(payload)
+    }
 
-            if (!keyStore.containsAlias(KEY_ALIAS)) {
-                val keyPairGenerator = KeyPairGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore"
-                )
-                val parameterSpec = KeyGenParameterSpec.Builder(
-                    KEY_ALIAS,
-                    KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
-                ).setDigests(KeyProperties.DIGEST_SHA256).build()
-                keyPairGenerator.initialize(parameterSpec)
-                keyPairGenerator.generateKeyPair()
-            }
+    fun verifyPayload(payload: String, signatureBase64: String): Boolean {
+        return KeystoreManager.verifyData(payload, signatureBase64)
+    }
 
-            val privateKey = keyStore.getKey(KEY_ALIAS, null) as PrivateKey
-            val signature = Signature.getInstance("SHA256withECDSA")
-            signature.initSign(privateKey)
-            signature.update(payload.toByteArray(Charsets.UTF_8))
-            val signatureBytes = signature.sign()
+    fun getPublicKeyBase64(): String? {
+        return KeystoreManager.getPublicKeyBase64()
+    }
 
-            return Base64.encodeToString(signatureBytes, Base64.NO_WRAP)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        }
+    fun signDocumentDigest(docId: String, plaintextBytes: ByteArray, ownerUid: String, timestamp: Long): String? {
+        val digestHex = EccCryptoEngine.sha256Hex(plaintextBytes)
+        val manifest = "$docId|$digestHex|$ownerUid|$timestamp"
+        return KeystoreManager.signData(manifest)
     }
 }

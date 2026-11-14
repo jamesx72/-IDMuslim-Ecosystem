@@ -2896,6 +2896,90 @@ class EventViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Prepares a PayPal subscription order or executes verified Sandbox PayPal activation
+     * without PayPal HostedButtons / USD configuration errors.
+     */
+    fun preparePayPalSubscriptionRenewal(
+        context: Context,
+        payerEmail: String,
+        tier: String,
+        billingCycle: String,
+        amountEur: Double,
+        isRenewal: Boolean = false,
+        installment4X: Boolean = false,
+        onPrepared: (com.example.payment.PayPalOrderPreparationResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val gateway = com.example.payment.PayPalPaymentGateway.getInstance(context)
+            val result = gateway.prepareSubscriptionPayment(
+                payerEmail = payerEmail,
+                tier = tier,
+                billingCycle = billingCycle,
+                amountEur = amountEur,
+                isRenewal = isRenewal,
+                installment4X = installment4X
+            )
+
+            if (result is com.example.payment.PayPalOrderPreparationResult.DirectSandboxApproved) {
+                applyPayPalSuccessToState(result.transactionResult)
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onPrepared(result)
+            }
+        }
+    }
+
+    fun finalizePayPalWebCheckout(
+        context: Context,
+        orderOrSubId: String,
+        payerEmail: String,
+        tier: String,
+        billingCycle: String,
+        amountEur: Double,
+        isRenewal: Boolean = false,
+        installment4X: Boolean = false,
+        onResult: (com.example.payment.PayPalPaymentResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val gateway = com.example.payment.PayPalPaymentGateway.getInstance(context)
+            val result = gateway.finalizeAndPersistPayPalPayment(
+                orderOrSubId = orderOrSubId,
+                payerEmail = payerEmail,
+                tier = tier,
+                billingCycle = billingCycle,
+                amountEur = amountEur,
+                isRenewal = isRenewal,
+                installment4X = installment4X,
+                attemptRestCapture = true
+            )
+
+            if (result is com.example.payment.PayPalPaymentResult.Success) {
+                applyPayPalSuccessToState(result)
+            }
+
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(result)
+            }
+        }
+    }
+
+    private fun applyPayPalSuccessToState(result: com.example.payment.PayPalPaymentResult.Success) {
+        _membershipTier.value = result.tier
+        _membershipBillingCycle.value = result.billingCycle
+        _membershipExpiryTimestamp.value = result.expiryTimestamp
+        _membershipAutoRenew.value = true
+        if (!result.tier.equals("STANDARD", ignoreCase = true)) {
+            _hasPaidForPdf.value = true
+        }
+        val renewalPrefix = if (result.isRenewal) "Renouvellement" else "Souscription"
+        logActivity(
+            "PAYPAL_PAYMENT_SUCCESS",
+            "$renewalPrefix ${result.tier} (${result.billingCycle}) validé via PayPal [${result.orderOrSubscriptionId}]"
+        )
+    }
+
     fun updateMembershipAutoRenew(autoRenew: Boolean) {
         val sessionManager = com.example.network.ApiClient.getSessionManager()
         sessionManager.saveMembershipAutoRenew(autoRenew)
