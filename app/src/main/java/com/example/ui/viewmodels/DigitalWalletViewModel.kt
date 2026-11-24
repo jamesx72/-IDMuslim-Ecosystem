@@ -510,7 +510,7 @@ class DigitalWalletViewModel(
 
     fun purgeEntireVault() {
         viewModelScope.launch {
-            repository.purgeEntireVault()
+            repository.purgeEntireVault(appContext)
             refreshTelemetry()
             _uiState.update {
                 it.copy(

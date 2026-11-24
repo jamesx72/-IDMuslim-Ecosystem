@@ -109,10 +109,13 @@ class WalletRepository(
         com.example.security.EncryptedDocumentVaultManager.deleteEncryptedDocument(entity, walletDao)
     }
 
-    suspend fun purgeEntireVault() = withContext(Dispatchers.IO) {
+    suspend fun purgeEntireVault(context: Context? = null) = withContext(Dispatchers.IO) {
         walletDao.clearAllDocuments()
         walletDao.clearAllSensitiveInfo()
         walletDao.clearAllEncryptedFiles()
+        if (context != null) {
+            com.example.security.EncryptedDocumentVaultManager.wipeAllLocalEncryptedFiles(context)
+        }
     }
 
     suspend fun loadTelemetry(context: Context): SqlCipherVaultTelemetry = withContext(Dispatchers.IO) {

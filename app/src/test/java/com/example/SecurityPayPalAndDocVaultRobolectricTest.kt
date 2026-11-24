@@ -210,4 +210,34 @@ class SecurityPayPalAndDocVaultRobolectricTest {
         composeTestRule.onNodeWithText("Titre de Séjour Recto").assertExists()
         composeTestRule.onNodeWithText("Cloud + Local").assertExists()
     }
+
+    @Test
+    fun `client build config excludes server payment secrets and purge wipes encrypted disk files`() = runBlocking {
+        // Server-only secrets must never be compiled into Android BuildConfig
+        val buildConfigFieldNames = BuildConfig::class.java.fields.map { it.name }.toSet()
+        assertFalse(buildConfigFieldNames.contains("PAYPAL_CLIENT_SECRET"))
+        assertFalse(buildConfigFieldNames.contains("PAYPAL_WEBHOOK_ID"))
+        assertFalse(buildConfigFieldNames.contains("STRIPE_SECRET_KEY"))
+        assertFalse(buildConfigFieldNames.contains("STRIPE_WEBHOOK_SECRET"))
+        assertTrue(buildConfigFieldNames.contains("PAYPAL_CLIENT_ID"))
+        assertTrue(buildConfigFieldNames.contains("STRIPE_PUBLISHABLE_KEY"))
+
+        // Verify purgeEntireVault(context) removes DB records AND wipes local .enc blobs
+        val stored = repository.uploadEncryptedBytes(
+            context = context,
+            plainBytes = "%PDF-1.4\nPurgeTest\n%%EOF".toByteArray(),
+            fileName = "purge_test.pdf",
+            mimeType = "application/pdf",
+            title = "Purge Target",
+            docCategory = WalletDocCategory.NATIONAL_ID.code,
+            uploadToCloud = false
+        ).getOrThrow()
+
+        val diskFile = File(stored.localEncryptedPath)
+        assertTrue(diskFile.exists())
+
+        repository.purgeEntireVault(context)
+        assertFalse(diskFile.exists())
+        assertTrue(repository.allEncryptedFiles.first().isEmpty())
+    }
 }

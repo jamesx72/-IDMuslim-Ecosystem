@@ -254,6 +254,27 @@ object EncryptedDocumentVaultManager {
         }
     }
 
+    suspend fun wipeAllLocalEncryptedFiles(context: Context) = withContext(Dispatchers.IO) {
+        try {
+            val dir = File(context.applicationContext.filesDir, VAULT_SUBDIR)
+            if (dir.exists() && dir.isDirectory) {
+                dir.listFiles()?.forEach { file ->
+                    try {
+                        val len = file.length().coerceAtMost(2L * 1024L * 1024L).toInt()
+                        if (len > 0) {
+                            file.writeBytes(ByteArray(len))
+                        }
+                        file.delete()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Vault file wipe skipped (${e.javaClass.simpleName})")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed wiping encrypted vault directory: ${e.javaClass.simpleName}")
+        }
+    }
+
     private suspend fun uploadEncryptedBlobToFirebase(
         entity: EncryptedVaultFileEntity,
         cipherBytes: ByteArray,

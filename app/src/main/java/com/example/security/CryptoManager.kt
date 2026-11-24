@@ -46,11 +46,18 @@ class CryptoManager {
             ks.load(null)
             keyStore = ks
         } catch (e: Throwable) {
-            Log.w(TAG, "AndroidKeyStore unavailable, falling back to software key: ${e.message}")
-            try {
-                val fallbackBytes = "IDMuslimMasterFallbackKey2026Safe".toByteArray(Charsets.UTF_8).copyOf(32)
-                fallbackKey = SecretKeySpec(fallbackBytes, "AES")
-            } catch (ignored: Throwable) {}
+            Log.w(TAG, "AndroidKeyStore unavailable in runtime (${e.javaClass.simpleName}); generating ephemeral AES-256 key.")
+            fallbackKey = generateEphemeralAesKey()
+        }
+    }
+
+    private fun generateEphemeralAesKey(): SecretKey? {
+        return try {
+            val kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES)
+            kg.init(256)
+            kg.generateKey()
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -81,13 +88,12 @@ class CryptoManager {
                     return entry.secretKey
                 }
             } catch (e: Throwable) {
-                Log.w(TAG, "Failed retrieving key from AndroidKeyStore, using fallback: ${e.message}")
+                Log.w(TAG, "Failed retrieving key from AndroidKeyStore (${e.javaClass.simpleName}); using ephemeral runtime key.")
             }
         }
 
         if (fallbackKey == null) {
-            val fallbackBytes = "IDMuslimMasterFallbackKey2026Safe".toByteArray(Charsets.UTF_8).copyOf(32)
-            fallbackKey = SecretKeySpec(fallbackBytes, "AES")
+            fallbackKey = generateEphemeralAesKey()
         }
         return fallbackKey
     }

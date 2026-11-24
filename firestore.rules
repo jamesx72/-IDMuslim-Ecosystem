@@ -14,7 +14,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        request.auth.token.email == 'ouattarajamesx@gmail.com' ||
+        (request.auth.token.email == 'ouattarajamesx@gmail.com' && request.auth.token.email_verified == true) ||
         request.auth.token.firebase.sign_in_provider == 'custom'
       );
     }
@@ -22,29 +22,38 @@ service cloud.firestore {
     // 1. User Profiles & Digital Identity Documents
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId);
-      
-      // Allow updates for profile data, but restrict critical security fields from client-side tampering
+      allow create: if isOwner(userId) &&
+                       !('isRevoked' in request.resource.data && request.resource.data.isRevoked == true) &&
+                       !('isSuspended' in request.resource.data && request.resource.data.isSuspended == true);
+
+      // Allow updates for profile data, restricting critical security/moderation fields
       allow update: if isAdmin() || (
         isOwner(userId) &&
-        // Prevent users from directly un-suspending or overriding admin restrictions
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'isRevoked',
           'isSuspended',
           'suspensionReason',
           'adminAuditLog'
-        ])
+        ]) &&
+        (!('membershipTier' in request.resource.data) ||
+          request.resource.data.membershipTier in ['STANDARD', 'EMERALD', 'WAQF_PATRON', 'VERIFIED_PREMIUM']) &&
+        (!('lastPaymentAmount' in request.resource.data) ||
+          (request.resource.data.lastPaymentAmount is number && request.resource.data.lastPaymentAmount >= 0))
       );
-      
+
       allow delete: if isOwner(userId) || isAdmin();
 
       // User's private Payments & Invoices Subcollection (Stripe, PayPal, Crypto)
       match /payments/{paymentId} {
         allow read: if isOwner(userId) || isAdmin();
-        allow create: if isOwner(userId) && 
-                         request.resource.data.amount is number && 
+        allow create: if isOwner(userId) &&
+                         request.resource.data.amount is number &&
                          request.resource.data.amount >= 0;
-        allow update: if isAdmin() || isOwner(userId);
+        allow update: if isAdmin() || (
+                         isOwner(userId) &&
+                         request.resource.data.amount is number &&
+                         request.resource.data.amount >= 0
+                       );
         allow delete: if isAdmin();
       }
 
@@ -60,41 +69,63 @@ service cloud.firestore {
         allow read, write: if isOwner(userId) || isAdmin();
       }
 
-      // User's Digital Passports / Certificates
+      // User's Digital Passports / Encrypted Certificates & Vault Files
       match /documents/{docId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, delete: if isOwner(userId) || isAdmin();
+        allow create, update: if isAdmin() || (
+          isOwner(userId) &&
+          (!('encryptedSizeBytes' in request.resource.data) ||
+            (request.resource.data.encryptedSizeBytes is number &&
+             request.resource.data.encryptedSizeBytes > 0 &&
+             request.resource.data.encryptedSizeBytes <= 16777216)) &&
+          (!('mimeType' in request.resource.data) ||
+            (request.resource.data.mimeType is string &&
+             (request.resource.data.mimeType == 'application/pdf' ||
+              request.resource.data.mimeType.matches('^image/.*'))))
+        );
+      }
+
+      // User's Waqf Solidarity Donations
+      match /waqf_donations/{donationId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) &&
+                         request.resource.data.amount is number &&
+                         request.resource.data.amount > 0;
+        allow update, delete: if isAdmin();
       }
     }
 
     // 2. Stripe & PayPal Webhook Events (Secure Cloud Trigger Pipeline)
     match /stripe_events/{eventId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read, write: if isAdmin();
     }
 
     match /webhook_logs/{logId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin();
+      allow read, write: if isAdmin();
     }
 
     // 3. Payment Intents & Checkout Sessions Collection
     match /payment_intents/{intentId} {
       allow read: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid || isAdmin()
+        (resource != null && resource.data.userId == request.auth.uid) || isAdmin()
       );
-      allow create: if isAuthenticated() && 
+      allow create: if isAuthenticated() &&
                        request.resource.data.userId == request.auth.uid &&
-                       request.resource.data.amount is number;
+                       request.resource.data.amount is number &&
+                       request.resource.data.amount >= 0;
       allow update: if isAdmin() || (
-        isAuthenticated() && resource.data.userId == request.auth.uid
+        isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid
       );
       allow delete: if isAdmin();
     }
 
-    // 4. Mosques & Halal Places (Public read, verified write)
+    // 4. Mosques & Halal Places (Public read, verified creator write)
     match /mosques/{mosqueId} {
       allow read: if true;
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                       (!('createdBy' in request.resource.data) || request.resource.data.createdBy == request.auth.uid);
       allow update, delete: if isAdmin() || (
         isAuthenticated() && resource.data.createdBy == request.auth.uid
       );
@@ -103,7 +134,8 @@ service cloud.firestore {
     // 5. Emergency Declarations & SOS Broadcasts
     match /emergency_declarations/{declId} {
       allow read: if true;
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                       (!('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid);
       allow update, delete: if isAdmin() || (
         isAuthenticated() && resource.data.userId == request.auth.uid
       );
@@ -111,10 +143,10 @@ service cloud.firestore {
 
     // 6. Identity Verification Requests
     match /verification_requests/{reqId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
-      allow create: if isAuthenticated();
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if isAdmin() || (resource != null && isOwner(resource.data.userId));
+      allow create: if isAuthenticated() &&
+                       request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
     }
   }
 }

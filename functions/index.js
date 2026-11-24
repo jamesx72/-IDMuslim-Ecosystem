@@ -293,16 +293,32 @@ async function verifyPayPalWebhookSignature(req) {
   return verifyResp.data?.verification_status === "SUCCESS";
 }
 
+const PAYPAL_SERVER_PRICING_EUR = {
+  EMERALD: { MONTHLY: "2.99", ANNUAL: "29.90" },
+  WAQF_PATRON: { MONTHLY: "9.99", ANNUAL: "99.00" },
+  PDF_UNLOCK: { MONTHLY: "4.99", ANNUAL: "4.99" },
+};
+
+function resolveAuthoritativePrice(tierRaw, cycleRaw) {
+  const tier = String(tierRaw || "EMERALD").toUpperCase();
+  const billingCycle = String(cycleRaw || "ANNUAL").toUpperCase() === "MONTHLY" ? "MONTHLY" : "ANNUAL";
+  const tierTable = PAYPAL_SERVER_PRICING_EUR[tier] || PAYPAL_SERVER_PRICING_EUR.EMERALD;
+  const resolvedTier = PAYPAL_SERVER_PRICING_EUR[tier] ? tier : "EMERALD";
+  return {
+    tier: resolvedTier,
+    billingCycle,
+    amountEur: tierTable[billingCycle],
+  };
+}
+
 /**
- * 2a. HTTPS Callable: Create PayPal Order v2 in EUR
+ * 2a. HTTPS Callable: Create PayPal Order v2 in EUR (server-authoritative pricing)
  */
 exports.createPayPalOrder = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
   }
-  const tier = data?.tier || "EMERALD";
-  const billingCycle = (data?.billingCycle || "ANNUAL").toUpperCase();
-  const amountEur = Number(data?.amountEur || (tier === "WAQF_PATRON" ? 99.0 : 29.90)).toFixed(2);
+  const { tier, billingCycle, amountEur } = resolveAuthoritativePrice(data?.tier, data?.billingCycle);
 
   const token = await getPayPalAccessToken();
   const orderResp = await axios.post(
@@ -349,9 +365,9 @@ exports.capturePayPalOrder = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
   }
-  const orderId = data?.orderId;
-  if (!orderId) {
-    throw new functions.https.HttpsError("invalid-argument", "Missing PayPal orderId.");
+  const orderId = String(data?.orderId || "").trim();
+  if (!orderId || !/^[A-Za-z0-9_-]{6,64}$/.test(orderId)) {
+    throw new functions.https.HttpsError("invalid-argument", "Invalid or missing PayPal orderId.");
   }
 
   const token = await getPayPalAccessToken();
@@ -372,13 +388,17 @@ exports.capturePayPalOrder = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("failed-precondition", `PayPal order status is ${status}`);
   }
 
-  const tier = data?.tier || "EMERALD";
-  const billingCycle = (data?.billingCycle || "ANNUAL").toUpperCase();
+  const { tier, billingCycle, amountEur } = resolveAuthoritativePrice(data?.tier, data?.billingCycle);
+  const isRenewal = Boolean(data?.isRenewal);
   const durationDays = billingCycle === "ANNUAL" ? 365 : 30;
   const now = Date.now();
-  const expiryTimestamp = now + durationDays * 24 * 60 * 60 * 1000;
 
   const userRef = db.collection("users").doc(context.auth.uid);
+  const existingSnap = await userRef.get();
+  const existingExpiry = existingSnap.exists ? (existingSnap.data()?.membershipExpiry || 0) : 0;
+  const baseTime = isRenewal && existingExpiry > now ? existingExpiry : now;
+  const expiryTimestamp = baseTime + durationDays * 24 * 60 * 60 * 1000;
+
   await userRef.set({
     membershipTier: tier,
     membershipStatus: "ACTIVE",
@@ -389,6 +409,8 @@ exports.capturePayPalOrder = functions.https.onCall(async (data, context) => {
     paypalSubscriptionId: orderId,
     lastPaymentMethod: "PAYPAL",
     lastPaymentStatus: "COMPLETED",
+    lastPaymentAmount: Number(amountEur),
+    lastPaymentCurrency: "EUR",
     lastTransactionRef: orderId,
     updatedAt: now,
   }, { merge: true });
@@ -399,7 +421,9 @@ exports.capturePayPalOrder = functions.https.onCall(async (data, context) => {
     status: "COMPLETED",
     tier,
     billingCycle,
+    amount: Number(amountEur),
     currency: "EUR",
+    isRenewal,
     timestamp: now,
   }, { merge: true });
 

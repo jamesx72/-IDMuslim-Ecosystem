@@ -4620,6 +4620,7 @@ fun PaymentDialog(
     var cryptoTxHashError by remember { mutableStateOf<String?>(null) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Formatting & verification helpers
     fun formatCardNumber(input: String): String {
@@ -4734,7 +4735,23 @@ fun PaymentDialog(
 
     if (showPayPalWebView) {
         PayPalWebView(
+            amountEur = 4.99,
+            description = "Export PDF Certifié IDMuslim",
             onDismiss = { showPayPalWebView = false },
+            onApproved = { approvedOrderId, payerEmail ->
+                coroutineScope.launch {
+                    val gateway = com.example.payment.PayPalPaymentGateway.getInstance(context)
+                    gateway.finalizeAndPersistPayPalPayment(
+                        orderOrSubId = approvedOrderId,
+                        payerEmail = payerEmail,
+                        tier = "EMERALD",
+                        billingCycle = "MONTHLY",
+                        amountEur = 4.99,
+                        isRenewal = false,
+                        installment4X = false
+                    )
+                }
+            },
             onSuccess = {
                 showPayPalWebView = false
                 onPaymentSuccess()
@@ -5100,14 +5117,18 @@ fun PayPalWebView(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                    androidx.compose.material3.TextButton(
-                        onClick = {
-                            val fallbackId = orderId ?: "PP-CONFIRMED-${System.currentTimeMillis()}"
-                            onApproved(fallbackId, "")
-                            onSuccess()
+                    if (!audit.clientIdConfigured && approvalUrl == null) {
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                val fallbackId = orderId ?: "PAYPAL-SBX-${System.currentTimeMillis()}"
+                                onApproved(fallbackId, "sandbox@idmuslim.app")
+                                onSuccess()
+                            }
+                        ) {
+                            Text("Sandbox OK")
                         }
-                    ) {
-                        Text("Confirmer")
+                    } else {
+                        Spacer(modifier = Modifier.width(48.dp))
                     }
                 }
 
@@ -5203,14 +5224,16 @@ fun PayPalWebView(
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     style = MaterialTheme.typography.bodySmall
                                 )
-                                OutlinedButton(
-                                    onClick = {
-                                        val sbxOrder = orderId ?: "PAYPAL-FB-${java.util.UUID.randomUUID().toString().take(10).uppercase()}"
-                                        onApproved(sbxOrder, "")
-                                        onSuccess()
+                                if (audit.environment != "live") {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val sbxOrder = orderId ?: "PAYPAL-FB-${java.util.UUID.randomUUID().toString().take(10).uppercase()}"
+                                            onApproved(sbxOrder, "sandbox@idmuslim.app")
+                                            onSuccess()
+                                        }
+                                    ) {
+                                        Text("Finaliser en Sandbox Vérifié")
                                     }
-                                ) {
-                                    Text("Finaliser en mode Secours Vérifié")
                                 }
                             }
                         }

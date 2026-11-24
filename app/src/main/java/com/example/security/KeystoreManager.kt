@@ -255,7 +255,6 @@ object KeystoreManager {
     }
 
     private fun unwrapPrivateKey(secretKey: SecretKey, wrappedBase64: String): PrivateKey? {
-        val decrypted = ByteArray(0)
         return try {
             val combined = Base64.decode(wrappedBase64, Base64.NO_WRAP)
             if (combined.size <= GCM_IV_LEN + 16) return null
@@ -272,8 +271,6 @@ object KeystoreManager {
         } catch (e: Throwable) {
             Log.e(TAG, "Failed unwrapping vault ECIES key: ${e.javaClass.simpleName}")
             null
-        } finally {
-            Arrays.fill(decrypted, 0.toByte())
         }
     }
 }

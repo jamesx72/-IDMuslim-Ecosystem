@@ -1,29 +1,27 @@
 package com.example.payment
 
 import android.content.Context
-import android.util.Base64
 import android.util.Log
 import com.example.BuildConfig
 import com.example.network.ApiClient
 import com.example.network.SessionManager
 import com.example.security.KeystoreManager
+import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 enum class PayPalConfigurationMode {
-    LIVE_OR_SANDBOX_REST_API,
+    CLOUD_FUNCTIONS_REST_API,
     JS_CHECKOUT_ONLY,
     SANDBOX_LOCAL_VERIFIED
 }
@@ -32,7 +30,7 @@ data class PayPalConfigAudit(
     val mode: PayPalConfigurationMode,
     val environment: String,
     val clientIdConfigured: Boolean,
-    val restSecretConfigured: Boolean,
+    val cloudBackendCapable: Boolean,
     val isReadyWithoutError: Boolean,
     val statusBannerFr: String
 )
@@ -83,16 +81,18 @@ sealed class PayPalPaymentResult {
 /**
  * PayPal Payment & Subscription Gateway for IDMuslim.
  *
- * Eliminates legacy HostedButtons/USD configuration errors by:
- * 1. Pre-validating BuildConfig / Secrets configuration before loading any PayPal SDK script.
- * 2. Supporting PayPal Orders REST API v2 (OAuth2 + /v2/checkout/orders + capture) in EUR when configured.
- * 3. Using validated PayPal JS SDK v5 Smart Buttons or clean verified Sandbox fallback when keys are placeholders.
- * 4. Signing receipts with ECC P-256 (SHA256withECDSA) and syncing Firestore + SessionManager.
+ * Security & Configuration Architecture:
+ * - Zero client secrets stored in APK/BuildConfig: only public `PAYPAL_CLIENT_ID` & `PAYPAL_ENVIRONMENT`
+ *   exist on device, while `PAYPAL_CLIENT_SECRET` & `PAYPAL_WEBHOOK_ID` remain strictly server-side
+ *   in Firebase Cloud Functions (`createPayPalOrder`, `capturePayPalOrder`, `paypalWebhook`).
+ * - Pre-validates configuration before loading any Checkout WebView to prevent legacy HostedButtons/USD errors.
+ * - Uses EUR exclusively and signs receipts with hardware-backed ECDSA P-256 (`SHA256withECDSA`).
  */
 class PayPalPaymentGateway private constructor(private val context: Context) {
 
     companion object {
         private const val TAG = "PayPalPaymentGateway"
+        private const val CLOUD_CALL_TIMEOUT_MS = 12_000L
         const val RETURN_URL = "https://idmuslim.app/paypal/return"
         const val CANCEL_URL = "https://idmuslim.app/paypal/cancel"
 
@@ -107,16 +107,9 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
     }
 
     private val sessionManager: SessionManager = ApiClient.getSessionManager()
-    private val httpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .build()
-    }
 
     fun auditConfiguration(): PayPalConfigAudit {
         val rawClientId = BuildConfig.PAYPAL_CLIENT_ID.trim()
-        val rawSecret = BuildConfig.PAYPAL_CLIENT_SECRET.trim()
         val env = BuildConfig.PAYPAL_ENVIRONMENT.trim().lowercase(Locale.ROOT)
             .takeIf { it == "live" || it == "production" } ?: "sandbox"
 
@@ -125,33 +118,30 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
             !rawClientId.contains("placeholder", ignoreCase = true) &&
             rawClientId.length >= 16
 
-        val hasSecret = rawSecret.isNotBlank() &&
-            !rawSecret.startsWith("YOUR_PAYPAL", ignoreCase = true) &&
-            !rawSecret.contains("placeholder", ignoreCase = true) &&
-            rawSecret.length >= 16
+        val firebaseSignedIn = safeCurrentUser() != null
 
         return when {
-            hasClientId && hasSecret -> PayPalConfigAudit(
-                mode = PayPalConfigurationMode.LIVE_OR_SANDBOX_REST_API,
+            hasClientId && firebaseSignedIn -> PayPalConfigAudit(
+                mode = PayPalConfigurationMode.CLOUD_FUNCTIONS_REST_API,
                 environment = env,
                 clientIdConfigured = true,
-                restSecretConfigured = true,
+                cloudBackendCapable = true,
                 isReadyWithoutError = true,
-                statusBannerFr = "PayPal API REST v2 ($env) configuré • Aucune erreur"
+                statusBannerFr = "PayPal Checkout + API Serveur ($env • EUR) prêt"
             )
             hasClientId -> PayPalConfigAudit(
                 mode = PayPalConfigurationMode.JS_CHECKOUT_ONLY,
                 environment = env,
                 clientIdConfigured = true,
-                restSecretConfigured = false,
+                cloudBackendCapable = false,
                 isReadyWithoutError = true,
-                statusBannerFr = "PayPal Checkout SDK v5 ($env) prêt (EUR)"
+                statusBannerFr = "PayPal Checkout SDK v5 ($env • EUR) prêt"
             )
             else -> PayPalConfigAudit(
                 mode = PayPalConfigurationMode.SANDBOX_LOCAL_VERIFIED,
                 environment = "sandbox",
                 clientIdConfigured = false,
-                restSecretConfigured = false,
+                cloudBackendCapable = false,
                 isReadyWithoutError = true,
                 statusBannerFr = "Mode Sandbox Vérifié actif • Ajoutez PAYPAL_CLIENT_ID dans Secrets pour le mode Live"
             )
@@ -164,12 +154,14 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
         description: String,
         installment4X: Boolean
     ): String {
+        val safeClientId = clientId.replace("[^A-Za-z0-9_-]".toRegex(), "")
         val safeAmount = String.format(Locale.US, "%.2f", amountEur.coerceAtLeast(0.50))
         val safeDesc = description
             .replace("\"", "")
             .replace("'", "")
             .replace("<", "")
             .replace(">", "")
+            .replace("&", " ")
             .take(120)
         val fundingParam = if (installment4X) "&enable-funding=paylater" else ""
         return """
@@ -187,7 +179,7 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
                     .desc { font-size: 13px; color: #475569; }
                     #paypal-error-box { display: none; margin-top: 12px; padding: 12px; border-radius: 10px; background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; font-size: 12px; }
                 </style>
-                <script src="https://www.paypal.com/sdk/js?client-id=$clientId&currency=EUR&intent=capture&components=buttons$fundingParam"
+                <script src="https://www.paypal.com/sdk/js?client-id=$safeClientId&currency=EUR&intent=capture&components=buttons$fundingParam"
                         onerror="if(window.PayPalAndroidBridge){window.PayPalAndroidBridge.onError('Impossible de charger le script PayPal SDK');}"></script>
             </head>
             <body>
@@ -252,8 +244,8 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
     }
 
     /**
-     * Prepares a PayPal Checkout order via PayPal REST v2 API (when configured) or prepares a safe
-     * Checkout/Sandbox session without triggering PayPal HostedButtons errors.
+     * Prepares a PayPal Checkout order via Firebase Cloud Functions (`createPayPalOrder`, keeping
+     * PayPal client secrets strictly server-side), or falls back cleanly to PayPal JS SDK v5 / Verified Sandbox.
      */
     suspend fun prepareSubscriptionPayment(
         payerEmail: String,
@@ -273,43 +265,21 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
 
         val audit = auditConfiguration()
         val rawClientId = BuildConfig.PAYPAL_CLIENT_ID.trim()
-        val rawSecret = BuildConfig.PAYPAL_CLIENT_SECRET.trim()
 
-        if (audit.mode == PayPalConfigurationMode.LIVE_OR_SANDBOX_REST_API) {
-            val baseUrl = if (audit.environment == "live") {
-                "https://api-m.paypal.com"
-            } else {
-                "https://api-m.sandbox.paypal.com"
+        if (audit.mode == PayPalConfigurationMode.CLOUD_FUNCTIONS_REST_API) {
+            val cloudCreated = createOrderViaCloudFunctions(tier, billingCycle, amountEur)
+            if (cloudCreated != null) {
+                return@withContext PayPalOrderPreparationResult.ReadyForWebCheckout(
+                    orderId = cloudCreated.first,
+                    approvalUrl = cloudCreated.second,
+                    clientId = rawClientId,
+                    environment = audit.environment,
+                    amountEur = amountEur,
+                    tier = tier,
+                    billingCycle = billingCycle,
+                    installment4X = installment4X
+                )
             }
-
-            try {
-                val token = fetchOAuthAccessToken(baseUrl, rawClientId, rawSecret)
-                if (token != null) {
-                    val created = createRestV2Order(
-                        baseUrl = baseUrl,
-                        accessToken = token,
-                        tier = tier,
-                        billingCycle = billingCycle,
-                        amountEur = amountEur,
-                        isRenewal = isRenewal
-                    )
-                    if (created != null) {
-                        return@withContext PayPalOrderPreparationResult.ReadyForWebCheckout(
-                            orderId = created.first,
-                            approvalUrl = created.second,
-                            clientId = rawClientId,
-                            environment = audit.environment,
-                            amountEur = amountEur,
-                            tier = tier,
-                            billingCycle = billingCycle,
-                            installment4X = installment4X
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "PayPal REST API order creation unavailable (${e.javaClass.simpleName}), using JS SDK Checkout.")
-            }
-
             return@withContext PayPalOrderPreparationResult.ReadyForWebCheckout(
                 orderId = "PP-SDK-" + UUID.randomUUID().toString().replace("-", "").take(16).uppercase(Locale.ROOT),
                 approvalUrl = null,
@@ -335,7 +305,6 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
             )
         }
 
-        // Clean verified Sandbox mode when placeholder PAYPAL_CLIENT_ID is present in .env.example
         val sandboxId = "PAYPAL-SBX-" + UUID.randomUUID().toString().replace("-", "").take(14).uppercase(Locale.ROOT)
         val finalized = finalizeAndPersistPayPalPayment(
             orderOrSubId = sandboxId,
@@ -355,8 +324,8 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
     }
 
     /**
-     * Captures a PayPal REST v2 order (if applicable), signs the transaction receipt using ECC P-256,
-     * updates SessionManager, and writes to Firestore (users/{uid}, payments, activity_logs).
+     * Captures a server-created PayPal order via Firebase Cloud Functions when applicable,
+     * signs the receipt with ECDSA P-256 (`SHA256withECDSA`), updates SessionManager, and writes to Firestore.
      */
     suspend fun finalizeAndPersistPayPalPayment(
         orderOrSubId: String,
@@ -370,28 +339,16 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
     ): PayPalPaymentResult = withContext(Dispatchers.IO) {
         val audit = auditConfiguration()
         if (attemptRestCapture &&
-            audit.mode == PayPalConfigurationMode.LIVE_OR_SANDBOX_REST_API &&
+            audit.mode == PayPalConfigurationMode.CLOUD_FUNCTIONS_REST_API &&
             !orderOrSubId.startsWith("PP-SDK-") &&
             !orderOrSubId.startsWith("PP-JS-") &&
             !orderOrSubId.startsWith("PAYPAL-SBX-")
         ) {
-            val baseUrl = if (audit.environment == "live") "https://api-m.paypal.com" else "https://api-m.sandbox.paypal.com"
-            try {
-                val token = fetchOAuthAccessToken(
-                    baseUrl,
-                    BuildConfig.PAYPAL_CLIENT_ID.trim(),
-                    BuildConfig.PAYPAL_CLIENT_SECRET.trim()
+            val captured = captureOrderViaCloudFunctions(orderOrSubId, tier, billingCycle, isRenewal)
+            if (captured == false) {
+                return@withContext PayPalPaymentResult.Failed(
+                    "La capture PayPal n'a pas été confirmée par le serveur. Veuillez réessayer."
                 )
-                if (token != null) {
-                    val captured = captureRestV2Order(baseUrl, token, orderOrSubId)
-                    if (!captured) {
-                        return@withContext PayPalPaymentResult.Failed(
-                            "La capture PayPal n'a pas été confirmée. Veuillez réessayer."
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "PayPal capture skipped/warn (${e.javaClass.simpleName})")
             }
         }
 
@@ -406,7 +363,6 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
         val receiptPayload = "$orderOrSubId|$normalizedEmail|$tier|$billingCycle|$amountEur|$newExpiryTimestamp|$now"
         val eccSignature = KeystoreManager.signData(receiptPayload)
 
-        // Persist local SessionManager state
         sessionManager.saveMembershipTier(tier)
         sessionManager.saveMembershipBillingCycle(billingCycle)
         sessionManager.saveMembershipExpiryTimestamp(newExpiryTimestamp)
@@ -419,58 +375,58 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
             sessionManager.saveHasPaidForPdf(true)
         }
 
-        // Persist to Firestore if authenticated
         val authUser = safeCurrentUser()
         if (authUser != null) {
-            val db = FirebaseFirestore.getInstance()
-            val userDocRef = db.collection("users").document(authUser.uid)
+            safeFirestore()?.let { db ->
+                val userDocRef = db.collection("users").document(authUser.uid)
 
-            val userUpdateMap = hashMapOf<String, Any>(
-                "membershipTier" to tier,
-                "membershipStatus" to "ACTIVE",
-                "membershipCycle" to billingCycle,
-                "membershipExpiry" to newExpiryTimestamp,
-                "membershipAutoRenew" to true,
-                "hasPaidForPdf" to true,
-                "paypalSubscriptionId" to orderOrSubId,
-                "paypalPayerEmail" to normalizedEmail,
-                "lastPaymentMethod" to "PAYPAL",
-                "lastPaymentStatus" to "COMPLETED",
-                "lastPaymentAmount" to amountEur,
-                "lastPaymentCurrency" to "EUR",
-                "lastTransactionRef" to orderOrSubId,
-                "updatedAt" to now
-            )
-            userDocRef.set(userUpdateMap, SetOptions.merge())
+                val userUpdateMap = hashMapOf<String, Any>(
+                    "membershipTier" to tier,
+                    "membershipStatus" to "ACTIVE",
+                    "membershipCycle" to billingCycle,
+                    "membershipExpiry" to newExpiryTimestamp,
+                    "membershipAutoRenew" to true,
+                    "hasPaidForPdf" to true,
+                    "paypalSubscriptionId" to orderOrSubId,
+                    "paypalPayerEmail" to normalizedEmail,
+                    "lastPaymentMethod" to "PAYPAL",
+                    "lastPaymentStatus" to "COMPLETED",
+                    "lastPaymentAmount" to amountEur,
+                    "lastPaymentCurrency" to "EUR",
+                    "lastTransactionRef" to orderOrSubId,
+                    "updatedAt" to now
+                )
+                userDocRef.set(userUpdateMap, SetOptions.merge())
 
-            val paymentReceipt = hashMapOf<String, Any>(
-                "paymentId" to orderOrSubId,
-                "provider" to "PAYPAL",
-                "payerEmail" to normalizedEmail,
-                "amount" to amountEur,
-                "currency" to "EUR",
-                "status" to "COMPLETED",
-                "tier" to tier,
-                "billingCycle" to billingCycle,
-                "isRenewal" to isRenewal,
-                "installment4X" to installment4X,
-                "eccSignatureBase64" to (eccSignature ?: ""),
-                "description" to if (isRenewal) {
-                    "Renouvellement Formule $tier ($billingCycle) via PayPal"
-                } else {
-                    "Souscription Formule $tier ($billingCycle) via PayPal"
-                },
-                "timestamp" to now
-            )
-            userDocRef.collection("payments").document(orderOrSubId).set(paymentReceipt, SetOptions.merge())
+                val paymentReceipt = hashMapOf<String, Any>(
+                    "paymentId" to orderOrSubId,
+                    "provider" to "PAYPAL",
+                    "payerEmail" to normalizedEmail,
+                    "amount" to amountEur,
+                    "currency" to "EUR",
+                    "status" to "COMPLETED",
+                    "tier" to tier,
+                    "billingCycle" to billingCycle,
+                    "isRenewal" to isRenewal,
+                    "installment4X" to installment4X,
+                    "eccSignatureBase64" to (eccSignature ?: ""),
+                    "description" to if (isRenewal) {
+                        "Renouvellement Formule $tier ($billingCycle) via PayPal"
+                    } else {
+                        "Souscription Formule $tier ($billingCycle) via PayPal"
+                    },
+                    "timestamp" to now
+                )
+                userDocRef.collection("payments").document(orderOrSubId).set(paymentReceipt, SetOptions.merge())
 
-            val auditLog = hashMapOf<String, Any>(
-                "action" to if (isRenewal) "MEMBERSHIP_RENEWED_PAYPAL" else "MEMBERSHIP_UPGRADED_PAYPAL",
-                "details" to "Paiement PayPal de ${String.format(Locale.US, "%.2f", amountEur)} € validé ($tier • $billingCycle • Ref: $orderOrSubId).",
-                "timestamp" to now,
-                "source" to "PAYPAL_CHECKOUT_GATEWAY"
-            )
-            userDocRef.collection("activity_logs").add(auditLog)
+                val auditLog = hashMapOf<String, Any>(
+                    "action" to if (isRenewal) "MEMBERSHIP_RENEWED_PAYPAL" else "MEMBERSHIP_UPGRADED_PAYPAL",
+                    "details" to "Paiement PayPal de ${String.format(Locale.US, "%.2f", amountEur)} € validé ($tier • $billingCycle • Ref: $orderOrSubId).",
+                    "timestamp" to now,
+                    "source" to "PAYPAL_CHECKOUT_GATEWAY"
+                )
+                userDocRef.collection("activity_logs").add(auditLog)
+            }
         }
 
         Log.i(TAG, "PayPal subscription payment finalized: $orderOrSubId ($tier / $billingCycle / $amountEur EUR)")
@@ -489,106 +445,59 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
         )
     }
 
-    private fun fetchOAuthAccessToken(baseUrl: String, clientId: String, clientSecret: String): String? {
-        val creds = Base64.encodeToString("$clientId:$clientSecret".toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-        val request = Request.Builder()
-            .url("$baseUrl/v1/oauth2/token")
-            .header("Authorization", "Basic $creds")
-            .header("Accept", "application/json")
-            .post("grant_type=client_credentials".toRequestBody("application/x-www-form-urlencoded".toMediaType()))
-            .build()
-
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                Log.w(TAG, "PayPal OAuth token request returned HTTP ${response.code}")
-                return null
-            }
-            val body = response.body?.string() ?: return null
-            return JSONObject(body).optString("access_token").takeIf { it.isNotBlank() }
-        }
-    }
-
-    private fun createRestV2Order(
-        baseUrl: String,
-        accessToken: String,
+    private suspend fun createOrderViaCloudFunctions(
         tier: String,
         billingCycle: String,
-        amountEur: Double,
-        isRenewal: Boolean
+        amountEur: Double
     ): Pair<String, String?>? {
-        val uid = safeCurrentUser()?.uid ?: "guest"
-        val formattedValue = String.format(Locale.US, "%.2f", amountEur)
-        val payload = JSONObject().apply {
-            put("intent", "CAPTURE")
-            put(
-                "purchase_units",
-                JSONArray().put(
-                    JSONObject().apply {
-                        put("custom_id", uid)
-                        put("description", if (isRenewal) "Renouvellement IDMuslim $tier ($billingCycle)" else "Adhésion IDMuslim $tier ($billingCycle)")
-                        put(
-                            "amount",
-                            JSONObject().apply {
-                                put("currency_code", "EUR")
-                                put("value", formattedValue)
-                            }
-                        )
-                    }
-                )
+        return try {
+            val payload = hashMapOf<String, Any>(
+                "tier" to tier,
+                "billingCycle" to billingCycle,
+                "amountEur" to amountEur
             )
-            put(
-                "application_context",
-                JSONObject().apply {
-                    put("brand_name", "IDMuslim")
-                    put("landing_page", "LOGIN")
-                    put("user_action", "PAY_NOW")
-                    put("return_url", RETURN_URL)
-                    put("cancel_url", CANCEL_URL)
-                }
-            )
-        }
+            val result = withTimeoutOrNull(CLOUD_CALL_TIMEOUT_MS) {
+                FirebaseFunctions.getInstance()
+                    .getHttpsCallable("createPayPalOrder")
+                    .call(payload)
+                    .awaitTask()
+            } ?: return null
 
-        val request = Request.Builder()
-            .url("$baseUrl/v2/checkout/orders")
-            .header("Authorization", "Bearer $accessToken")
-            .header("Content-Type", "application/json")
-            .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .build()
-
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                Log.w(TAG, "PayPal Create Order failed HTTP ${response.code}")
-                return null
-            }
-            val json = JSONObject(response.body?.string() ?: return null)
-            val orderId = json.optString("id").takeIf { it.isNotBlank() } ?: return null
-            var approveUrl: String? = null
-            val links = json.optJSONArray("links")
-            if (links != null) {
-                for (i in 0 until links.length()) {
-                    val link = links.getJSONObject(i)
-                    if (link.optString("rel") == "approve") {
-                        approveUrl = link.optString("href")
-                        break
-                    }
-                }
-            }
-            return orderId to approveUrl
+            val dataMap = result.data as? Map<*, *> ?: return null
+            val orderId = dataMap["orderId"]?.toString()?.takeIf { it.isNotBlank() } ?: return null
+            val approvalUrl = dataMap["approvalUrl"]?.toString()?.takeIf { it.isNotBlank() }
+            orderId to approvalUrl
+        } catch (e: Throwable) {
+            Log.w(TAG, "Cloud Function createPayPalOrder unavailable (${e.javaClass.simpleName}); falling back to JS SDK v5.")
+            null
         }
     }
 
-    private fun captureRestV2Order(baseUrl: String, accessToken: String, orderId: String): Boolean {
-        val request = Request.Builder()
-            .url("$baseUrl/v2/checkout/orders/$orderId/capture")
-            .header("Authorization", "Bearer $accessToken")
-            .header("Content-Type", "application/json")
-            .post("{}".toRequestBody("application/json".toMediaType()))
-            .build()
+    private suspend fun captureOrderViaCloudFunctions(
+        orderId: String,
+        tier: String,
+        billingCycle: String,
+        isRenewal: Boolean
+    ): Boolean? {
+        return try {
+            val payload = hashMapOf<String, Any>(
+                "orderId" to orderId,
+                "tier" to tier,
+                "billingCycle" to billingCycle,
+                "isRenewal" to isRenewal
+            )
+            val result = withTimeoutOrNull(CLOUD_CALL_TIMEOUT_MS) {
+                FirebaseFunctions.getInstance()
+                    .getHttpsCallable("capturePayPalOrder")
+                    .call(payload)
+                    .awaitTask()
+            } ?: return null
 
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return false
-            val json = JSONObject(response.body?.string() ?: return false)
-            return json.optString("status").equals("COMPLETED", ignoreCase = true)
+            val dataMap = result.data as? Map<*, *> ?: return null
+            dataMap["status"]?.toString().equals("COMPLETED", ignoreCase = true)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Cloud Function capturePayPalOrder skipped (${e.javaClass.simpleName})")
+            null
         }
     }
 
@@ -596,5 +505,23 @@ class PayPalPaymentGateway private constructor(private val context: Context) {
         FirebaseAuth.getInstance().currentUser
     } catch (_: Throwable) {
         null
+    }
+
+    private fun safeFirestore(): FirebaseFirestore? = try {
+        FirebaseFirestore.getInstance()
+    } catch (_: Throwable) {
+        null
+    }
+
+    private suspend fun <T> Task<T>.awaitTask(): T = suspendCancellableCoroutine { cont ->
+        addOnSuccessListener { result ->
+            if (cont.isActive) cont.resume(result)
+        }
+        addOnFailureListener { exc ->
+            if (cont.isActive) cont.resumeWithException(exc)
+        }
+        addOnCanceledListener {
+            if (cont.isActive) cont.cancel()
+        }
     }
 }
